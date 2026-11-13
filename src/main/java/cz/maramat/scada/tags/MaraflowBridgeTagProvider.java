@@ -6,6 +6,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * RuntimeTagProvider bridging ScadaTags to an external PlcTagEndpoint (such as Maraflow's
@@ -21,6 +22,12 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
 
     private final PlcTagEndpoint endpoint;
     private volatile Executor writeExecutor;
+    private final AtomicLong revision = new AtomicLong(0L);
+
+    @Override
+    public long getRevision() {
+        return revision.get();
+    }
 
     public MaraflowBridgeTagProvider(PlcTagEndpoint endpoint) {
         this.endpoint = endpoint;
@@ -44,6 +51,7 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
         ScadaTag tag = project.getTag(tagName);
         if (tag == null) return;
         tag.setRuntimeValue(value);
+        revision.incrementAndGet();
         if (tag.getSourceType() != TagSourceType.INTERNAL && endpoint != null && endpoint.isOnline()) {
             String ref = resolveEndpointRef(tag);
             double runtimeVal = tag.getRuntimeValue();
@@ -112,6 +120,9 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
                 tag.setRuntimeQuality(TagQuality.GOOD);
                 changed = true;
             }
+        }
+        if (changed) {
+            revision.incrementAndGet();
         }
         return changed;
     }

@@ -16,4 +16,11 @@ public interface RuntimeTagProvider {
     boolean isConnected();
 
     String getConnectionStatusText();
+
+    /**
+     * Monotonic revision incremented when tag values change, or -1 if unversioned.
+     */
+    default long getRevision() {
+        return -1L;
+    }
 }

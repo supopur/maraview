@@ -55,16 +55,25 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         int localW = sym.getGridW() * gPx;
         int localH = sym.getGridH() * gPx;
 
+        String type = sym.getSymbolType();
+        boolean hasBindings = !sym.getTagBindings().isEmpty();
         EquipmentState state = resolveState(sym, project, tagProvider);
-        double speedPct = readBoundValue(sym, project, tagProvider, "SpeedTag", state == EquipmentState.RUNNING ? 100.0 : 0.0);
-        double rawLevel = readBoundValue(sym, project, tagProvider, "LevelTag", 65.0);
+        double speedPct = hasBindings
+                ? readBoundValue(sym, project, tagProvider, "SpeedTag", state == EquipmentState.RUNNING ? 100.0 : 0.0)
+                : (state == EquipmentState.RUNNING ? 100.0 : 0.0);
+        double rawLevel = hasBindings
+                ? readBoundValue(sym, project, tagProvider, "LevelTag", 65.0)
+                : 65.0;
         double minLevel = readDoubleProp(sym, "Min", "rangeMin", 0.0);
         double maxLevel = readDoubleProp(sym, "Max", "rangeMax", 100.0);
         double levelSpan = maxLevel - minLevel;
         double levelPct = (levelSpan > 0.0) ? ((rawLevel - minLevel) / levelSpan) * 100.0 : rawLevel;
-        double posPct = readBoundValue(sym, project, tagProvider, "PositionTag",
-                readBoundValue(sym, project, tagProvider, "SetpointTag", 50.0));
-        boolean open = isValveOpen(sym, project, tagProvider);
+        double posPct = hasBindings
+                ? readFirstBoundValue(sym, project, tagProvider, 50.0, "PositionTag", "SetpointTag")
+                : 50.0;
+        boolean open = isValveOrDamper(type)
+                ? isValveOpen(sym, project, tagProvider)
+                : Boolean.parseBoolean(sym.getProperties().getOrDefault("Open", "true"));
         String fluidRaw = sym.getProperties().get("FluidType");
         if (fluidRaw == null || fluidRaw.isBlank()) {
             fluidRaw = sym.getProperties().get("fluidType");
@@ -106,11 +115,10 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                         port.direction(), gPx, port.connectionType());
             }
 
-            String type = sym.getSymbolType();
             double phase = animationTimeMs / 60.0;
-            double numVal = readBoundValue(sym, project, tagProvider, "ValueTag",
-                    readBoundValue(sym, project, tagProvider, "TempTag",
-                            readBoundValue(sym, project, tagProvider, "SetpointTag", 21.5)));
+            double numVal = hasBindings
+                    ? readFirstBoundValue(sym, project, tagProvider, 21.5, "ValueTag", "TempTag", "SetpointTag")
+                    : 21.5;
             if (ElectricalSymbolRenderer.paint(lg, sym, localW, localH, state, phase)) {
                 // Rendered by ElectricalSymbolRenderer
             } else if (HvacHeatingRenderer.paint(lg, sym, localW, localH, state, phase, speedPct, posPct, numVal, layerCache)) {
@@ -260,9 +268,23 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         return null;
     }
 
+    public static double readFirstBoundValue(ScadaSymbolInstance sym, ScadaProject project,
+                                             RuntimeTagProvider tags, double fallback, String... roles) {
+        if (sym == null || project == null || tags == null || sym.getTagBindings().isEmpty()) {
+            return fallback;
+        }
+        for (String role : roles) {
+            String tagName = sym.getTagBindings().get(role);
+            if (tagName != null && !tagName.isBlank() && project.getTag(tagName) != null) {
+                return tags.readTag(project, tagName);
+            }
+        }
+        return fallback;
+    }
+
     public static double readBoundValue(ScadaSymbolInstance sym, ScadaProject project,
                                         RuntimeTagProvider tags, String role, double fallback) {
-        if (sym == null || project == null || tags == null) return fallback;
+        if (sym == null || project == null || tags == null || sym.getTagBindings().isEmpty()) return fallback;
         String tagName = sym.getTagBindings().get(role);
         if (tagName == null || tagName.isBlank() || project.getTag(tagName) == null) {
             return fallback;

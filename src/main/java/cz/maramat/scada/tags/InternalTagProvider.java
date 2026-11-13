@@ -2,10 +2,19 @@ package cz.maramat.scada.tags;
 
 import cz.maramat.scada.model.ScadaProject;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 /**
  * Standalone in-memory tag provider used in Designer preview and offline testing.
  */
 public class InternalTagProvider implements RuntimeTagProvider {
+
+    private final AtomicLong revision = new AtomicLong(0L);
+
+    @Override
+    public long getRevision() {
+        return revision.get();
+    }
 
     @Override
     public double readTag(ScadaProject project, String tagName) {
@@ -21,6 +30,7 @@ public class InternalTagProvider implements RuntimeTagProvider {
         if (tag != null) {
             tag.setRuntimeValue(value);
             tag.setRuntimeQuality(TagQuality.GOOD);
+            revision.incrementAndGet();
         }
     }
 

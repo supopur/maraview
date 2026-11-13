@@ -191,6 +191,16 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     private boolean staticPipeLayerAA = false;
     private long staticPipeLayerHash = 0L;
 
+    // Cached z-ordered symbols & flow solver result
+    private List<ScadaSymbolInstance> cachedOrderedSymbols = List.of();
+    private long cachedSymbolOrderHash = 0L;
+    private ScadaScreen cachedSymbolOrderScreen;
+    private long cachedFlowRevision = Long.MIN_VALUE;
+    private long cachedFlowPipeHash = 0L;
+    private int cachedFlowSymCount = -1;
+    private ScadaScreen cachedFlowScreen;
+    private RuntimeTagProvider cachedFlowProvider;
+
     public record PortHit(ScadaSymbolInstance symbol, PipePort port, PipePort.WorldPort worldPort) {
     }
 
@@ -662,11 +672,10 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         this.onDirtyCallback = cb;
     }
 
-    private BufferedImage ensureStaticPipeLayer(int gPx, int w, int h) {
+    private BufferedImage ensureStaticPipeLayer(int gPx, int w, int h, long hash) {
         if (screen == null || w <= 0 || h <= 0 || screen.getPipes().isEmpty()) {
             return null;
         }
-        long hash = computePipeTopologyHash(screen.getPipes());
         if (staticPipeLayer != null
                 && staticPipeLayerW == w
                 && staticPipeLayerH == h
@@ -719,6 +728,82 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         return h;
     }
 
+    private Map<String, FlowState> resolveFlowMap(long pipeHash) {
+        long rev = (tagProvider != null) ? tagProvider.getRevision() : -1L;
+        int symCount = screen.getSymbols().size();
+        if (rev >= 0L
+                && cachedFlowProvider == tagProvider
+                && cachedFlowScreen == screen
+                && cachedFlowRevision == rev
+                && cachedFlowPipeHash == pipeHash
+                && cachedFlowSymCount == symCount
+                && lastFlowMap != null) {
+            return lastFlowMap;
+        }
+        Map<String, FlowState> solved = FlowPropagationSolver.solve(screen, project, tagProvider);
+        cachedFlowProvider = tagProvider;
+        cachedFlowScreen = screen;
+        cachedFlowRevision = rev;
+        cachedFlowPipeHash = pipeHash;
+        cachedFlowSymCount = symCount;
+        return solved;
+    }
+
+    private List<ScadaSymbolInstance> getOrderedSymbols() {
+        List<ScadaSymbolInstance> syms = screen.getSymbols();
+        long h = 1469598103934665603L;
+        h = (h ^ syms.size()) * 1099511628211L;
+        for (ScadaSymbolInstance s : syms) {
+            h = (h ^ System.identityHashCode(s)) * 1099511628211L;
+            h = (h ^ s.getZIndex()) * 1099511628211L;
+        }
+        if (cachedSymbolOrderScreen != screen || cachedSymbolOrderHash != h) {
+            List<ScadaSymbolInstance> copy = new ArrayList<>(syms);
+            copy.sort(Comparator.comparingInt(ScadaSymbolInstance::getZIndex));
+            cachedOrderedSymbols = copy;
+            cachedSymbolOrderHash = h;
+            cachedSymbolOrderScreen = screen;
+        }
+        return cachedOrderedSymbols;
+    }
+
+    private static boolean symbolIntersectsClip(ScadaSymbolInstance sym, int gPx, int margin, Rectangle clip) {
+        int sx = sym.getGridX() * gPx - margin;
+        int sy = sym.getGridY() * gPx - margin;
+        int sw = sym.getEffectiveGridW() * gPx + margin * 2;
+        int sh = sym.getEffectiveGridH() * gPx + margin * 2 + Math.max(18, gPx * 2);
+        return sx < clip.x + clip.width && sx + sw > clip.x
+                && sy < clip.y + clip.height && sy + sh > clip.y;
+    }
+
+    private static boolean pipeIntersectsClip(ScadaPipe pipe, int gPx, Rectangle clip) {
+        List<GridPoint> verts = pipe.getVertices();
+        if (verts.isEmpty()) return false;
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
+        for (GridPoint gp : verts) {
+            int px = gp.x() * gPx;
+            int py = gp.y() * gPx;
+            if (px < minX) minX = px;
+            if (py < minY) minY = py;
+            if (px > maxX) maxX = px;
+            if (py > maxY) maxY = py;
+        }
+        int pad = Math.max(12, (int) Math.ceil(pipe.getDiameter().getGridUnits() * gPx) + 8);
+        return (minX - pad) < clip.x + clip.width && (maxX + pad) > clip.x
+                && (minY - pad) < clip.y + clip.height && (maxY + pad) > clip.y;
+    }
+
+    private static boolean graphicIntersectsClip(ScadaGraphicElement ge, int gPx, Rectangle clip) {
+        int pad = Math.max(12, gPx);
+        int gx = ge.normalizedX() * gPx - pad;
+        int gy = ge.normalizedY() * gPx - pad;
+        int gw = Math.max(1, ge.normalizedW()) * gPx + pad * 2;
+        int gh = Math.max(1, ge.normalizedH()) * gPx + pad * 2;
+        return gx < clip.x + clip.width && gx + gw > clip.x
+                && gy < clip.y + clip.height && gy + gh > clip.y;
+    }
+
     public void markDirty() {
         if (project != null) {
             project.setDirty(true);
@@ -741,9 +826,14 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     simActive ? RenderingHints.VALUE_RENDER_SPEED : RenderingHints.VALUE_RENDER_QUALITY);
 
             int gPx = getGridSizePx();
+            Rectangle clip = g.getClipBounds();
             Color bg = (screen != null) ? screen.getBackgroundColor() : ScadaScreen.parseHexColor(ScadaScreen.BG_LIGHT_SLATE, Color.LIGHT_GRAY);
             g.setColor(bg);
-            g.fillRect(0, 0, getWidth(), getHeight());
+            if (clip != null) {
+                g.fillRect(clip.x, clip.y, clip.width, clip.height);
+            } else {
+                g.fillRect(0, 0, getWidth(), getHeight());
+            }
 
             if (!operatorMode && (screen == null || screen.isShowGrid())) {
                 paintGridDots(g, gPx);
@@ -751,11 +841,15 @@ public class ScadaCanvas extends JComponent implements Scrollable {
 
             if (screen == null) return;
 
-            Map<String, FlowState> flowMap = FlowPropagationSolver.solve(screen, project, tagProvider);
+            long pipeHash = computePipeTopologyHash(screen.getPipes());
+            Map<String, FlowState> flowMap = resolveFlowMap(pipeHash);
             this.lastFlowMap = flowMap;
 
             // 0. Graphical elements & pictures (background layer)
             for (ScadaGraphicElement ge : screen.getGraphics()) {
+                if (clip != null && !graphicIntersectsClip(ge, gPx, clip)) {
+                    continue;
+                }
                 boolean gSel = !operatorMode && selectedGraphicIds.contains(ge.getId());
                 GraphicElementRenderer.paint(g, ge, gPx, gSel);
             }
@@ -764,19 +858,34 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             }
 
             // 1. Pipes & Electrical/Control Wires (static shell cached; dynamic fluid/selection per frame)
-            BufferedImage pipeLayer = ensureStaticPipeLayer(gPx, getWidth(), getHeight());
+            BufferedImage pipeLayer = ensureStaticPipeLayer(gPx, getWidth(), getHeight(), pipeHash);
             if (pipeLayer != null) {
-                g.drawImage(pipeLayer, 0, 0, null);
+                if (clip != null) {
+                    int x1 = Math.max(0, clip.x);
+                    int y1 = Math.max(0, clip.y);
+                    int x2 = Math.min(pipeLayer.getWidth(), clip.x + clip.width);
+                    int y2 = Math.min(pipeLayer.getHeight(), clip.y + clip.height);
+                    if (x2 > x1 && y2 > y1) {
+                        g.drawImage(pipeLayer, x1, y1, x2, y2, x1, y1, x2, y2, null);
+                    }
+                } else {
+                    g.drawImage(pipeLayer, 0, 0, null);
+                }
             }
             for (ScadaPipe pipe : screen.getPipes()) {
+                if (clip != null && !pipeIntersectsClip(pipe, gPx, clip)) {
+                    continue;
+                }
                 FlowState fs = flowMap.getOrDefault(pipe.getId(), FlowState.IDLE);
                 PipeRenderer.paintPipeDynamic(g, pipe, gPx, fs, simActive, flowDashPhasePx, selectedPipeIds.contains(pipe.getId()));
             }
 
             // 2. Symbols sorted by zIndex
-            List<ScadaSymbolInstance> ordered = new ArrayList<>(screen.getSymbols());
-            ordered.sort(Comparator.comparingInt(ScadaSymbolInstance::getZIndex));
-            for (ScadaSymbolInstance sym : ordered) {
+            int symMargin = Math.max(24, gPx * 3);
+            for (ScadaSymbolInstance sym : getOrderedSymbols()) {
+                if (clip != null && !symbolIntersectsClip(sym, gPx, symMargin, clip)) {
+                    continue;
+                }
                 symbolRenderer.paintSymbol(g, sym, gPx, project, tagProvider, layerCache, renderTimeMs, operatorMode);
                 if (!operatorMode) {
                     paintSymbolPorts(g, sym, gPx);

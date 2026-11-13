@@ -2,6 +2,7 @@ package cz.maramat.scada.ui;
 
 import cz.maramat.scada.alarms.AlarmEngine;
 import cz.maramat.scada.io.MslProjectSerializer;
+import cz.maramat.scada.model.ConnectionType;
 import cz.maramat.scada.model.DataType;
 import cz.maramat.scada.model.FluidType;
 import cz.maramat.scada.model.PipeDiameter;
@@ -765,51 +766,163 @@ public class MaraviewWindow extends JFrame {
 
     private static ScadaProject createSampleProject() {
         ScadaProject p = new ScadaProject();
-        p.setProjectName("DemoLoop");
+        p.setProjectName("WWTP_Municipal_COV");
+        p.setDescription("Municipal Wastewater Treatment Plant (ČOV) SCADA HMI");
 
-        ScadaTag pumpRun = new ScadaTag("Pump1_Run", DataType.BOOL, TagSourceType.INTERNAL);
-        pumpRun.setInitialValue("1");
-        pumpRun.resetRuntimeToInitial();
-        p.putTag(pumpRun);
+        addTag(p, "InfluentPump_Run", DataType.BOOL, "1", "");
+        addTag(p, "BarScreen_Run", DataType.BOOL, "1", "");
+        addTag(p, "Clarifier1_Run", DataType.BOOL, "1", "");
+        addTag(p, "Blower1_Run", DataType.BOOL, "1", "");
+        addTag(p, "Blower1_Speed", DataType.FLOAT, "78.0", "%");
+        addTag(p, "Aeration_Run", DataType.BOOL, "1", "");
+        addTag(p, "Clarifier2_Run", DataType.BOOL, "1", "");
+        addTag(p, "Uv_Run", DataType.BOOL, "1", "");
+        addTag(p, "Influent_Flow", DataType.FLOAT, "425.0", "m³/h");
+        addTag(p, "DO_Conc", DataType.FLOAT, "2.4", "mg/L");
+        addTag(p, "Effluent_Flow", DataType.FLOAT, "418.5", "m³/h");
+        addTag(p, "Digester_Temp", DataType.FLOAT, "37.4", "°C");
+        addTag(p, "Thickener_Run", DataType.BOOL, "1", "");
+        addTag(p, "Boiler_Run", DataType.BOOL, "1", "");
 
-        ScadaTag valveOpen = new ScadaTag("Valve1_Open", DataType.BOOL, TagSourceType.INTERNAL);
-        valveOpen.setInitialValue("1");
-        valveOpen.resetRuntimeToInitial();
-        p.putTag(valveOpen);
+        // Screen 1: Water Line (ČOV)
+        ScadaScreen waterLine = p.getScreens().getFirst();
+        waterLine.setName("Water Line (ČOV)");
 
-        ScadaScreen screen = p.getScreens().getFirst();
-        ScadaSymbolInstance pump = SymbolCatalogTree.createDefaultInstance("CentrifugalPump", "P-101", 10, 18);
-        pump.getTagBindings().put("RunTag", "Pump1_Run");
+        // Graphical zone frames & titles
+        addZoneFrame(waterLine, "1. MECHANICAL PRE-TREATMENT", 2, 2, 46, 20, new Color(0xE3, 0xF2, 0xFD), new Color(0x15, 0x65, 0xC0));
+        addZoneFrame(waterLine, "2. BIOLOGICAL TREATMENT & AERATION", 50, 2, 48, 30, new Color(0xE8, 0xF5, 0xE9), new Color(0x2E, 0x7D, 0x32));
+        addZoneFrame(waterLine, "3. CLARIFICATION & UV DISINFECTION", 100, 2, 48, 20, new Color(0xE0, 0xF7, 0xFA), new Color(0x00, 0x83, 0x8F));
+        addZoneFrame(waterLine, "4. OPERATOR TELEMETRY & POWER FEED", 2, 24, 46, 16, new Color(0xFF, 0xF8, 0xE1), new Color(0xEF, 0x6C, 0x00));
 
-        ScadaSymbolInstance valve = SymbolCatalogTree.createDefaultInstance("SolenoidValve", "XV-101", 26, 10);
-        valve.getTagBindings().put("OpenTag", "Valve1_Open");
+        // Equipment - Zone 1
+        ScadaSymbolInstance screwPump = SymbolCatalogTree.createDefaultInstance("ArchimedesScrewPump", "P-101 Screw", 4, 8);
+        screwPump.getTagBindings().put("RunTag", "InfluentPump_Run");
+        ScadaSymbolInstance barScreen = SymbolCatalogTree.createDefaultInstance("BarScreen", "SCR-101", 19, 8);
+        barScreen.getTagBindings().put("RunTag", "BarScreen_Run");
+        ScadaSymbolInstance grit = SymbolCatalogTree.createDefaultInstance("GritChamber", "GC-101", 34, 8);
 
-        ScadaSymbolInstance tank = SymbolCatalogTree.createDefaultInstance("CylindricalTank", "TK-101", 44, 8);
+        // Equipment - Zone 2
+        ScadaSymbolInstance primClar = SymbolCatalogTree.createDefaultInstance("PrimaryClarifier", "CL-201", 53, 7);
+        primClar.getTagBindings().put("RunTag", "Clarifier1_Run");
+        ScadaSymbolInstance aeration = SymbolCatalogTree.createDefaultInstance("AerationBasin", "AT-201", 72, 8);
+        aeration.getTagBindings().put("RunTag", "Aeration_Run");
+        ScadaSymbolInstance blower = SymbolCatalogTree.createDefaultInstance("AirBlower", "BL-201", 75, 23);
+        blower.getTagBindings().put("RunTag", "Blower1_Run");
+        blower.getTagBindings().put("SpeedTag", "Blower1_Speed");
+        ScadaSymbolInstance vfd = SymbolCatalogTree.createDefaultInstance("VfdDrive", "VFD-201", 60, 22);
+        vfd.getTagBindings().put("RunTag", "Blower1_Run");
+        vfd.getTagBindings().put("SpeedTag", "Blower1_Speed");
 
-        screen.getSymbols().add(pump);
-        screen.getSymbols().add(valve);
-        screen.getSymbols().add(tank);
+        // Equipment - Zone 3
+        ScadaSymbolInstance secClar = SymbolCatalogTree.createDefaultInstance("SecondaryClarifier", "CL-301", 103, 7);
+        secClar.getTagBindings().put("RunTag", "Clarifier2_Run");
+        ScadaSymbolInstance uv = SymbolCatalogTree.createDefaultInstance("UvDisinfection", "UV-301", 121, 9);
+        uv.getTagBindings().put("RunTag", "Uv_Run");
+        ScadaSymbolInstance flowOut = SymbolCatalogTree.createDefaultInstance("FlowMeter", "FIT-301", 137, 9);
+        flowOut.getTagBindings().put("ValueTag", "Effluent_Flow");
 
-        ScadaPipe pipe1 = new ScadaPipe();
-        pipe1.setSourceSymbolId(pump.getId());
-        pipe1.setSourcePortId("discharge");
-        pipe1.setTargetSymbolId(valve.getId());
-        pipe1.setTargetPortId("inlet");
-        pipe1.setDiameter(PipeDiameter.MEDIUM);
-        pipe1.setFluidType(FluidType.WATER);
-        pipe1.setVertices(PipeRouter.route(pump.resolveWorldPort("discharge"), valve.resolveWorldPort("inlet")));
+        // Equipment - Zone 4 (Power + Readouts + Controls)
+        ScadaSymbolInstance pwr400 = SymbolCatalogTree.createDefaultInstance("PowerSource400V", "MCC-400V", 4, 29);
+        pwr400.getTagBindings().put("RunTag", "Blower1_Run");
+        ScadaSymbolInstance roIn = SymbolCatalogTree.createDefaultInstance("NumericReadout", "Influent m³/h", 14, 28);
+        roIn.getTagBindings().put("ValueTag", "Influent_Flow");
+        ScadaSymbolInstance roDo = SymbolCatalogTree.createDefaultInstance("NumericReadout", "O2 mg/L", 25, 28);
+        roDo.getTagBindings().put("ValueTag", "DO_Conc");
+        ScadaSymbolInstance roOut = SymbolCatalogTree.createDefaultInstance("NumericReadout", "Effluent m³/h", 36, 28);
+        roOut.getTagBindings().put("ValueTag", "Effluent_Flow");
+        ScadaSymbolInstance btnStart = SymbolCatalogTree.createDefaultInstance("PushButton", "AUTO START", 14, 34);
+        btnStart.getTagBindings().put("RunTag", "InfluentPump_Run");
+        ScadaSymbolInstance lampRun = SymbolCatalogTree.createDefaultInstance("PilotLamp", "PLANT RUN", 22, 34);
+        lampRun.getTagBindings().put("RunTag", "InfluentPump_Run");
 
-        ScadaPipe pipe2 = new ScadaPipe();
-        pipe2.setSourceSymbolId(valve.getId());
-        pipe2.setSourcePortId("outlet");
-        pipe2.setTargetSymbolId(tank.getId());
-        pipe2.setTargetPortId("inlet");
-        pipe2.setDiameter(PipeDiameter.MEDIUM);
-        pipe2.setFluidType(FluidType.WATER);
-        pipe2.setVertices(PipeRouter.route(valve.resolveWorldPort("outlet"), tank.resolveWorldPort("inlet")));
+        for (ScadaSymbolInstance sym : java.util.List.of(
+                screwPump, barScreen, grit, primClar, aeration, blower, vfd,
+                secClar, uv, flowOut, pwr400, roIn, roDo, roOut, btnStart, lampRun)) {
+            waterLine.getSymbols().add(sym);
+        }
 
-        screen.getPipes().add(pipe1);
-        screen.getPipes().add(pipe2);
+        // Fluid Pipes
+        connect(waterLine, screwPump, "out", barScreen, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
+        connect(waterLine, barScreen, "out", grit, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
+        connect(waterLine, grit, "out", primClar, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
+        connect(waterLine, primClar, "out", aeration, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
+        connect(waterLine, aeration, "out", secClar, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
+        connect(waterLine, secClar, "out", uv, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
+        connect(waterLine, uv, "out", flowOut, "inlet", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.MEDIUM);
+
+        // Air supply pipe from Blower -> Aeration Basin
+        connect(waterLine, blower, "air_out", aeration, "air", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.MEDIUM);
+
+        // Electrical Power Cables (400V MCC -> VFD -> Blower)
+        connect(waterLine, pwr400, "out", vfd, "in", ConnectionType.ELECTRICAL_POWER, FluidType.EMPTY, PipeDiameter.SMALL);
+        connect(waterLine, vfd, "out", blower, "pwr", ConnectionType.ELECTRICAL_POWER, FluidType.EMPTY, PipeDiameter.SMALL);
+
+        // Screen 2: Sludge & Biogas
+        ScadaScreen sludgeLine = new ScadaScreen("Sludge & Biogas");
+        addZoneFrame(sludgeLine, "SLUDGE THICKENING & DEWATERING", 2, 2, 54, 24, new Color(0xEF, 0xEB, 0xE9), new Color(0x5D, 0x40, 0x37));
+        addZoneFrame(sludgeLine, "ANAEROBIC DIGESTION & BIOGAS HEATING", 58, 2, 52, 24, new Color(0xFF, 0xF3, 0xE0), new Color(0xE6, 0x51, 0x00));
+
+        ScadaSymbolInstance thickener = SymbolCatalogTree.createDefaultInstance("SludgeThickener", "THK-401", 6, 8);
+        thickener.getTagBindings().put("RunTag", "Thickener_Run");
+        ScadaSymbolInstance dosing = SymbolCatalogTree.createDefaultInstance("DosingStation", "DOS-401", 22, 16);
+        ScadaSymbolInstance press = SymbolCatalogTree.createDefaultInstance("FilterPress", "FP-401", 36, 9);
+        press.getTagBindings().put("RunTag", "Thickener_Run");
+
+        ScadaSymbolInstance digester = SymbolCatalogTree.createDefaultInstance("AnaerobicDigester", "DIG-501", 64, 7);
+        ScadaSymbolInstance boiler = SymbolCatalogTree.createDefaultInstance("Boiler", "BLR-501", 86, 8);
+        boiler.getTagBindings().put("RunTag", "Boiler_Run");
+        ScadaSymbolInstance digTemp = SymbolCatalogTree.createDefaultInstance("NumericReadout", "Digester °C", 74, 20);
+        digTemp.getTagBindings().put("ValueTag", "Digester_Temp");
+
+        for (ScadaSymbolInstance sym : java.util.List.of(thickener, dosing, press, digester, boiler, digTemp)) {
+            sludgeLine.getSymbols().add(sym);
+        }
+        connect(sludgeLine, thickener, "out", press, "in", ConnectionType.PIPE, FluidType.SLURRY, PipeDiameter.MEDIUM);
+        connect(sludgeLine, dosing, "out", press, "in", ConnectionType.PIPE, FluidType.CHEMICAL_GAS, PipeDiameter.SMALL);
+        connect(sludgeLine, digester, "gas", boiler, "gas", ConnectionType.PIPE, FluidType.CHEMICAL_GAS, PipeDiameter.MEDIUM);
+
+        p.getScreens().add(sludgeLine);
         return p;
+    }
+
+    private static void addTag(ScadaProject p, String name, DataType dt, String initVal, String units) {
+        ScadaTag tag = new ScadaTag(name, dt, TagSourceType.INTERNAL);
+        tag.setInitialValue(initVal);
+        tag.setEngineeringUnits(units);
+        tag.resetRuntimeToInitial();
+        p.putTag(tag);
+    }
+
+    private static void addZoneFrame(ScadaScreen screen, String title, int gx, int gy, int gw, int gh,
+                                     Color fill, Color stroke) {
+        ScadaGraphicElement box = new ScadaGraphicElement(ScadaGraphicElement.Kind.ROUNDED_RECTANGLE, gx, gy, gw, gh);
+        box.setFilled(true);
+        box.setFillColor(fill);
+        box.setStrokeColor(stroke);
+        box.setStrokeWidth(1);
+        box.setDashed(true);
+        box.setOpacity(0.55);
+        screen.getGraphics().add(box);
+
+        ScadaGraphicElement label = new ScadaGraphicElement(ScadaGraphicElement.Kind.TEXT, gx + 1, gy + 1, gw - 2, 2);
+        label.setText(title);
+        label.setFontSize(11);
+        label.setStrokeColor(stroke);
+        screen.getGraphics().add(label);
+    }
+
+    private static void connect(ScadaScreen screen, ScadaSymbolInstance src, String srcPort,
+                                ScadaSymbolInstance dst, String dstPort,
+                                ConnectionType type, FluidType fluid, PipeDiameter dia) {
+        ScadaPipe pipe = new ScadaPipe();
+        pipe.setConnectionType(type);
+        pipe.setSourceSymbolId(src.getId());
+        pipe.setSourcePortId(srcPort);
+        pipe.setTargetSymbolId(dst.getId());
+        pipe.setTargetPortId(dstPort);
+        pipe.setFluidType(fluid);
+        pipe.setDiameter(dia);
+        pipe.setVertices(PipeRouter.route(src.resolveWorldPort(srcPort), dst.resolveWorldPort(dstPort)));
+        screen.getPipes().add(pipe);
     }
 }

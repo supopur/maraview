@@ -7,6 +7,8 @@ import cz.maramat.scada.render.EquipmentState;
 import cz.maramat.scada.render.ScadaPalette;
 import cz.maramat.scada.render.ScadaPalette.Material;
 import cz.maramat.scada.render.ScadaShader;
+import cz.maramat.scada.render.SymbolLayerCache;
+import cz.maramat.scada.render.SymbolLayerCache.CacheKey;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -17,6 +19,7 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
+import java.awt.image.BufferedImage;
 
 /**
  * 3D procedural renderers for pipe fittings, flow elements, and process equipment
@@ -29,7 +32,38 @@ public final class ProcessFittingRenderer {
 
     public static boolean paint(Graphics2D g, ScadaSymbolInstance sym, int w, int h, int gPx,
                                 EquipmentState state, FluidType fluid, long timeMs) {
+        return paint(g, sym, w, h, gPx, state, fluid, timeMs, null);
+    }
+
+    public static boolean paint(Graphics2D g, ScadaSymbolInstance sym, int w, int h, int gPx,
+                                EquipmentState state, FluidType fluid, long timeMs,
+                                SymbolLayerCache cache) {
         String type = sym.getSymbolType();
+        String variant = staticCacheVariant(type, gPx, state, fluid);
+        if (cache != null && variant != null) {
+            CacheKey key = new CacheKey("PF:" + type, w, h, 0, false, false, variant);
+            BufferedImage img = cache.getOrCreateBackground(key, (cg, cw, ch) ->
+                    paintDirect(cg, type, cw, ch, gPx, state, fluid, 0L));
+            g.drawImage(img, 0, 0, null);
+            return true;
+        }
+        return paintDirect(g, type, w, h, gPx, state, fluid, timeMs);
+    }
+
+    private static String staticCacheVariant(String type, int gPx, EquipmentState state, FluidType fluid) {
+        return switch (type) {
+            case "TeeFitting", "ElbowFitting", "Strainer" -> "g" + gPx;
+            case "ReducerFitting", "FlangeFitting", "ProcessFilter", "SteamTrap",
+                 "ExpansionJoint", "Coupling", "OrificePlate", "VenturiTube", "ProcessScreen" -> "s";
+            case "SightGlass", "Separator" -> (fluid != null) ? fluid.name() : "EMPTY";
+            case "MagneticFlowMeter", "UltrasonicFlowMeter", "CoriolisFlowMeter" ->
+                    (state != null) ? state.name() : "STOPPED";
+            default -> null;
+        };
+    }
+
+    private static boolean paintDirect(Graphics2D g, String type, int w, int h, int gPx,
+                                       EquipmentState state, FluidType fluid, long timeMs) {
         return switch (type) {
             // Fittings
             case "TeeFitting" -> { paintTee(g, w, h, gPx); yield true; }

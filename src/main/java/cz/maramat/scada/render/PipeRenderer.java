@@ -32,6 +32,12 @@ public final class PipeRenderer {
 
     private static final BasicStroke OUTLINE_STROKE = new BasicStroke(1.0f);
     private static final BasicStroke SELECTED_STROKE = new BasicStroke(2.0f);
+    private static final BasicStroke TICK_STROKE = new BasicStroke(1.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    private static final Color SPEC_WHITE = new Color(255, 255, 255, 200);
+    private static final Color PIPE_SELECTED_COLOR = new Color(0x00, 0x78, 0xD7, 190);
+    private static final float[] WIRE_DASH_CAPILLARY = new float[]{4.0f, 5.0f};
+    private static final float[] WIRE_DASH_DEFAULT = new float[]{8.0f, 6.0f};
+    private static final float[] WIRE_IDLE_CAPILLARY = new float[]{4.0f, 4.0f};
 
     private PipeRenderer() {
     }
@@ -39,24 +45,29 @@ public final class PipeRenderer {
     public static void paintPipe(Graphics2D g, ScadaPipe pipe, int gridSizePx,
                                  FlowState flowState, boolean simActive,
                                  double dashPhasePx, boolean selected) {
+        paintPipeStatic(g, pipe, gridSizePx);
+        paintPipeDynamic(g, pipe, gridSizePx, flowState, simActive, dashPhasePx, selected);
+    }
+
+    /**
+     * Paints the static, topology-only pipe shell (cylindrical walls, elbow collars, flanges,
+     * or wire outer sheath). Suitable for caching in an offscreen screen-wide layer.
+     */
+    public static void paintPipeStatic(Graphics2D g, ScadaPipe pipe, int gridSizePx) {
         if (pipe == null) return;
         List<GridPoint> verts = pipe.getVertices();
         if (verts.size() < 2) return;
 
-        if (pipe.getConnectionType() == ConnectionType.ELECTRICAL_POWER) {
-            paintWire(g, verts, gridSizePx, ConnectionType.ELECTRICAL_POWER, simActive, flowState, dashPhasePx, selected);
-            return;
-        }
-        if (pipe.getConnectionType() == ConnectionType.CONTROL_SIGNAL) {
-            paintWire(g, verts, gridSizePx, ConnectionType.CONTROL_SIGNAL, simActive, flowState, dashPhasePx, selected);
-            return;
-        }
-        if (pipe.getConnectionType() == ConnectionType.PNEUMATIC) {
-            paintWire(g, verts, gridSizePx, ConnectionType.PNEUMATIC, simActive, flowState, dashPhasePx, selected);
-            return;
-        }
-        if (pipe.getConnectionType() == ConnectionType.CAPILLARY) {
-            paintWire(g, verts, gridSizePx, ConnectionType.CAPILLARY, simActive, flowState, dashPhasePx, selected);
+        ConnectionType connType = pipe.getConnectionType();
+        if (isWireType(connType)) {
+            Paint oldPaint = g.getPaint();
+            Stroke oldStroke = g.getStroke();
+            float outerW = wireOuterWidth(connType, gridSizePx);
+            g.setColor(wireSheathColor(connType));
+            g.setStroke(new BasicStroke(outerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            drawPolyline(g, verts, gridSizePx);
+            g.setPaint(oldPaint);
+            g.setStroke(oldStroke);
             return;
         }
 
@@ -113,69 +124,102 @@ public final class PipeRenderer {
                     diameterPx + 6.0, Math.max(4.0, gridSizePx * 0.45), endDir);
         }
 
-        // Pass 3: Water/Fluid infill + moving lighter bubbles (hidden completely when sim is stopped)
+        g.setPaint(oldPaint);
+        g.setStroke(oldStroke);
+    }
+
+    /**
+     * Paints only the dynamic per-frame pipe content (fluid infill, bubbles, chevrons,
+     * wire core, and selection highlight).
+     */
+    public static void paintPipeDynamic(Graphics2D g, ScadaPipe pipe, int gridSizePx,
+                                        FlowState flowState, boolean simActive,
+                                        double dashPhasePx, boolean selected) {
+        if (pipe == null) return;
+        List<GridPoint> verts = pipe.getVertices();
+        if (verts.size() < 2) return;
+
+        ConnectionType connType = pipe.getConnectionType();
+        if (isWireType(connType)) {
+            paintWireDynamic(g, verts, gridSizePx, connType, simActive, flowState, dashPhasePx, selected);
+            return;
+        }
+
         FluidType fluid = (flowState != null && flowState.fluidType() != null)
                 ? flowState.fluidType()
                 : pipe.getFluidType();
-        if (simActive && fluid != FluidType.EMPTY && flowState != null && flowState.pressurized()) {
+        boolean drawFluid = simActive && fluid != FluidType.EMPTY && flowState != null && flowState.pressurized();
+        if (!drawFluid && !selected) {
+            return;
+        }
+
+        double diameterPx = Math.max(6.0, pipe.getDiameter().getGridUnits() * gridSizePx);
+        Paint oldPaint = g.getPaint();
+        Stroke oldStroke = g.getStroke();
+
+        // Pass 3: Water/Fluid infill + moving lighter bubbles (hidden completely when sim is stopped)
+        if (drawFluid) {
             double coreWidth = Math.max(3.5, diameterPx * 0.50);
             g.setColor(fluid.getBaseColor());
             g.setStroke(new BasicStroke((float) coreWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            for (int i = 0; i < verts.size() - 1; i++) {
-                GridPoint a = verts.get(i);
-                GridPoint b = verts.get(i + 1);
-                g.draw(new Line2D.Double(
-                        a.x() * (double) gridSizePx, a.y() * (double) gridSizePx,
-                        b.x() * (double) gridSizePx, b.y() * (double) gridSizePx
-                ));
-            }
+            drawPolyline(g, verts, gridSizePx);
 
             // Inner lighter water sheen
-            g.setColor(new Color(fluid.getHighlightColor().getRed(), fluid.getHighlightColor().getGreen(),
-                    fluid.getHighlightColor().getBlue(), 140));
+            Color hl = fluid.getHighlightColor();
+            g.setColor(new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 140));
             g.setStroke(new BasicStroke((float) Math.max(1.5, coreWidth * 0.42), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            for (int i = 0; i < verts.size() - 1; i++) {
-                GridPoint a = verts.get(i);
-                GridPoint b = verts.get(i + 1);
-                g.draw(new Line2D.Double(
-                        a.x() * (double) gridSizePx, a.y() * (double) gridSizePx,
-                        b.x() * (double) gridSizePx, b.y() * (double) gridSizePx
-                ));
-            }
+            drawPolyline(g, verts, gridSizePx);
 
             // Moving lighter water bubbles + directional chevrons along each segment
             if (flowState.flowRate() > 0.0 && fluid.getFlowDashColor() != null) {
-                paintFlowBubbles(g, verts, gridSizePx, coreWidth, fluid.getFlowDashColor(),
-                        dashPhasePx * Math.max(0.35, flowState.flowRate()));
-                paintFlowChevrons(g, verts, gridSizePx, coreWidth, fluid.getFlowDashColor(),
-                        dashPhasePx * Math.max(0.35, flowState.flowRate()));
+                double effPhase = dashPhasePx * Math.max(0.35, flowState.flowRate());
+                paintFlowBubbles(g, verts, gridSizePx, coreWidth, fluid.getFlowDashColor(), effPhase);
+                paintFlowChevrons(g, verts, gridSizePx, coreWidth, fluid.getFlowDashColor(), effPhase);
             }
         }
 
         // Selection highlight overlay
         if (selected) {
-            g.setColor(new Color(0x00, 0x78, 0xD7, 190));
+            g.setColor(PIPE_SELECTED_COLOR);
             g.setStroke(SELECTED_STROKE);
-            for (int i = 0; i < verts.size() - 1; i++) {
-                GridPoint a = verts.get(i);
-                GridPoint b = verts.get(i + 1);
-                g.draw(new Line2D.Double(
-                        a.x() * (double) gridSizePx, a.y() * (double) gridSizePx,
-                        b.x() * (double) gridSizePx, b.y() * (double) gridSizePx
-                ));
-            }
+            drawPolyline(g, verts, gridSizePx);
         }
 
         g.setPaint(oldPaint);
         g.setStroke(oldStroke);
     }
 
+    private static boolean isWireType(ConnectionType connType) {
+        return connType == ConnectionType.ELECTRICAL_POWER
+                || connType == ConnectionType.CONTROL_SIGNAL
+                || connType == ConnectionType.PNEUMATIC
+                || connType == ConnectionType.CAPILLARY;
+    }
+
+    private static float wireOuterWidth(ConnectionType connType, int gridSizePx) {
+        return switch (connType) {
+            case ELECTRICAL_POWER -> Math.max(3.5f, gridSizePx * 0.36f);
+            case PNEUMATIC -> Math.max(2.8f, gridSizePx * 0.28f);
+            case CAPILLARY -> Math.max(1.8f, gridSizePx * 0.18f);
+            default -> Math.max(2.2f, gridSizePx * 0.22f);
+        };
+    }
+
+    private static Color wireSheathColor(ConnectionType connType) {
+        return switch (connType) {
+            case ELECTRICAL_POWER -> new Color(0x37, 0x47, 0x4F);
+            case PNEUMATIC -> new Color(0x1E, 0x4B, 0x63);
+            case CAPILLARY -> new Color(0x4A, 0x35, 0x56);
+            default -> new Color(0x2E, 0x5D, 0x56);
+        };
+    }
+
     private static void paintFlowBubbles(Graphics2D g, List<GridPoint> verts, int gridSizePx,
                                          double coreWidth, Color bubbleColor, double phasePx) {
         double spacing = Math.max(14.0, gridSizePx * 1.6);
         double bubbleR = Math.max(1.8, coreWidth * 0.30);
-        Color specWhite = new Color(255, 255, 255, 200);
         Color softBubble = new Color(bubbleColor.getRed(), bubbleColor.getGreen(), bubbleColor.getBlue(), 210);
+        Ellipse2D.Double bubble = new Ellipse2D.Double();
 
         double accumulatedLen = 0.0;
         for (int i = 0; i < verts.size() - 1; i++) {
@@ -202,11 +246,12 @@ public final class PipeRenderer {
                 double by = y1 + uy * d + ny * lat;
                 double r = ((idx % 3) == 0) ? bubbleR * 1.15 : bubbleR * 0.85;
 
-                Shape bubble = new Ellipse2D.Double(bx - r, by - r, r * 2.0, r * 2.0);
+                bubble.setFrame(bx - r, by - r, r * 2.0, r * 2.0);
                 g.setColor(softBubble);
                 g.fill(bubble);
-                g.setColor(specWhite);
-                g.fill(new Ellipse2D.Double(bx - r * 0.45, by - r * 0.45, r * 0.7, r * 0.7));
+                bubble.setFrame(bx - r * 0.45, by - r * 0.45, r * 0.7, r * 0.7);
+                g.setColor(SPEC_WHITE);
+                g.fill(bubble);
             }
             accumulatedLen += segLen;
         }
@@ -307,30 +352,17 @@ public final class PipeRenderer {
         return null;
     }
 
-    private static void paintWire(Graphics2D g, List<GridPoint> verts, int gridSizePx,
-                                  ConnectionType connType, boolean simActive, FlowState flowState,
-                                  double dashPhasePx, boolean selected) {
+    private static void paintWireDynamic(Graphics2D g, List<GridPoint> verts, int gridSizePx,
+                                         ConnectionType connType, boolean simActive, FlowState flowState,
+                                         double dashPhasePx, boolean selected) {
         Paint oldPaint = g.getPaint();
         Stroke oldStroke = g.getStroke();
 
-        boolean powerWire = connType == ConnectionType.ELECTRICAL_POWER;
         boolean pneumatic = connType == ConnectionType.PNEUMATIC;
         boolean capillary = connType == ConnectionType.CAPILLARY;
 
-        float outerW = powerWire ? Math.max(3.5f, gridSizePx * 0.36f)
-                : (pneumatic ? Math.max(2.8f, gridSizePx * 0.28f)
-                : (capillary ? Math.max(1.8f, gridSizePx * 0.18f) : Math.max(2.2f, gridSizePx * 0.22f)));
+        float outerW = wireOuterWidth(connType, gridSizePx);
         float innerW = Math.max(1.2f, outerW * 0.52f);
-
-        Color sheathColor = switch (connType) {
-            case ELECTRICAL_POWER -> new Color(0x37, 0x47, 0x4F);
-            case PNEUMATIC -> new Color(0x1E, 0x4B, 0x63);
-            case CAPILLARY -> new Color(0x4A, 0x35, 0x56);
-            default -> new Color(0x2E, 0x5D, 0x56);
-        };
-        g.setColor(sheathColor);
-        g.setStroke(new BasicStroke(outerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        drawPolyline(g, verts, gridSizePx);
 
         boolean flowing = simActive && flowState != null && flowState.pressurized() && flowState.flowRate() > 0.0;
         Color activeCore = switch (connType) {
@@ -349,13 +381,13 @@ public final class PipeRenderer {
         if (flowing) {
             g.setColor(activeCore);
             float phase = (float) (((dashPhasePx % 14.0) + 14.0) % 14.0);
-            float[] pattern = capillary ? new float[]{4.0f, 5.0f} : new float[]{8.0f, 6.0f};
+            float[] pattern = capillary ? WIRE_DASH_CAPILLARY : WIRE_DASH_DEFAULT;
             g.setStroke(new BasicStroke(innerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 1.0f, pattern, phase));
         } else {
             g.setColor(idleCore);
             if (capillary) {
                 g.setStroke(new BasicStroke(innerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
-                        1.0f, new float[]{4.0f, 4.0f}, 0.0f));
+                        1.0f, WIRE_IDLE_CAPILLARY, 0.0f));
             } else {
                 g.setStroke(new BasicStroke(innerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             }
@@ -396,7 +428,7 @@ public final class PipeRenderer {
         double spacing = Math.max(18.0, gridSizePx * 2.0);
         double tickHalf = Math.max(3.0, gridSizePx * 0.35);
         g.setColor(tickColor);
-        g.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setStroke(TICK_STROKE);
         for (int i = 0; i < verts.size() - 1; i++) {
             GridPoint a = verts.get(i);
             GridPoint b = verts.get(i + 1);
@@ -433,13 +465,15 @@ public final class PipeRenderer {
     }
 
     private static void drawPolyline(Graphics2D g, List<GridPoint> verts, int gridSizePx) {
+        Line2D.Double line = new Line2D.Double();
         for (int i = 0; i < verts.size() - 1; i++) {
             GridPoint a = verts.get(i);
             GridPoint b = verts.get(i + 1);
-            g.draw(new Line2D.Double(
+            line.setLine(
                     a.x() * (double) gridSizePx, a.y() * (double) gridSizePx,
                     b.x() * (double) gridSizePx, b.y() * (double) gridSizePx
-            ));
+            );
+            g.draw(line);
         }
     }
 }

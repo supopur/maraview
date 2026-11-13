@@ -6,6 +6,8 @@ import cz.maramat.scada.render.EquipmentState;
 import cz.maramat.scada.render.ScadaPalette;
 import cz.maramat.scada.render.ScadaPalette.Material;
 import cz.maramat.scada.render.ScadaShader;
+import cz.maramat.scada.render.SymbolLayerCache;
+import cz.maramat.scada.render.SymbolLayerCache.CacheKey;
 import cz.maramat.scada.tags.RuntimeTagProvider;
 import cz.maramat.scada.tags.ScadaTag;
 
@@ -17,6 +19,7 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
+import java.awt.image.BufferedImage;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Locale;
@@ -29,38 +32,82 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class InstrumentationControlRenderer implements EquipmentSymbolRenderer.ExtensionRenderer {
 
     private static final int MAX_TREND_POINTS = 64;
-    private final Map<String, Deque<Double>> trendBuffers = new ConcurrentHashMap<>();
+    private static final long TREND_SAMPLE_INTERVAL_MS = 200L;
+    private static final Color TREND_GRID_COLOR = new Color(0x2E, 0x35, 0x3E);
+    private static final Color TREND_LINE_COLOR = new Color(0x2E, 0xCC, 0x71);
+    private static final java.awt.Stroke TREND_STROKE = new BasicStroke(1.5f);
+    private static final Color NUM_EDIT_BG = new Color(0x1B, 0x26, 0x31);
+    private static final Color NUM_EDIT_BORDER = new Color(0x54, 0x99, 0xC7);
+    private static final Color NUM_EDIT_TEXT = new Color(0xAE, 0xD6, 0xF1);
+    private static final Color NUM_RO_TEXT = new Color(0x2E, 0xCC, 0x71);
+    private static final Map<Integer, Font> MONO_BOLD_FONTS = new ConcurrentHashMap<>();
+    private static final Map<String, Deque<Double>> trendBuffers = new ConcurrentHashMap<>();
+    private static final Map<String, Long> lastTrendSampleMs = new ConcurrentHashMap<>();
+
+    public static void clearTrendBuffers() {
+        trendBuffers.clear();
+        lastTrendSampleMs.clear();
+    }
 
     @Override
     public boolean paint(Graphics2D g, ScadaSymbolInstance sym, int w, int h, int gPx,
                          ScadaProject project, RuntimeTagProvider tags, EquipmentState state, long timeMs) {
+        return paint(g, sym, w, h, gPx, project, tags, state, timeMs, null);
+    }
+
+    @Override
+    public boolean paint(Graphics2D g, ScadaSymbolInstance sym, int w, int h, int gPx,
+                         ScadaProject project, RuntimeTagProvider tags, EquipmentState state,
+                         long timeMs, SymbolLayerCache layerCache) {
         String type = sym.getSymbolType();
         double val = resolvePrimaryValue(sym, project, tags);
-        double min = parseDoubleSafe(sym.getProperties().get("Min"), 0.0);
-        double max = parseDoubleSafe(sym.getProperties().get("Max"), 100.0);
+        double min = parseDoubleSafe(sym.getProperties().getOrDefault("Min", sym.getProperties().get("rangeMin")), 0.0);
+        double max = parseDoubleSafe(sym.getProperties().getOrDefault("Max", sym.getProperties().get("rangeMax")), 100.0);
         if (max <= min) max = min + 100.0;
         double norm = Math.max(0.0, Math.min(1.0, (val - min) / (max - min)));
-        String units = sym.getProperties().getOrDefault("EngineeringUnits", "");
+        String units = sym.getProperties().getOrDefault("EngineeringUnits",
+                sym.getProperties().getOrDefault("unit", ""));
 
         switch (type) {
             case "PressureSensor" -> paintPressureSensor(g, w, h, gPx, val, norm, units);
             case "TempSensor" -> paintTempSensor(g, w, h, val, norm, units);
             case "FlowMeter" -> paintFlowMeter(g, w, h, gPx, val, units);
-            case "LevelSwitch" -> paintLevelSwitch(g, w, h, gPx, val != 0.0);
-            case "ProximitySensor" -> paintProximitySensor(g, w, h, gPx, val != 0.0);
-            case "PushButton" -> paintPushButton(g, w, h, gPx, val != 0.0);
-            case "SelectorSwitch" -> paintSelectorSwitch(g, w, h, (int) Math.round(val));
-            case "EStopMushroom" -> paintEStopMushroom(g, w, h, val != 0.0);
-            case "PilotLamp" -> paintPilotLamp(g, w, h, val != 0.0, state);
+            case "LevelSwitch" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    gPx + "|" + (val != 0.0), cg -> paintLevelSwitch(cg, w, h, gPx, val != 0.0));
+            case "ProximitySensor" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    gPx + "|" + (val != 0.0), cg -> paintProximitySensor(cg, w, h, gPx, val != 0.0));
+            case "PushButton" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    gPx + "|" + (val != 0.0), cg -> paintPushButton(cg, w, h, gPx, val != 0.0));
+            case "SelectorSwitch" -> {
+                int pos = (int) Math.round(val);
+                paintCachedDiscrete(g, layerCache, type, w, h,
+                        String.valueOf(pos), cg -> paintSelectorSwitch(cg, w, h, pos));
+            }
+            case "EStopMushroom" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    String.valueOf(val != 0.0), cg -> paintEStopMushroom(cg, w, h, val != 0.0));
+            case "PilotLamp" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    (val != 0.0) + "|" + state.name(), cg -> paintPilotLamp(cg, w, h, val != 0.0, state));
             case "NumericReadout" -> paintNumericBox(g, w, h, gPx, val, units, false);
             case "NumericSetpoint" -> paintNumericBox(g, w, h, gPx, val, units, true);
             case "BarGraph" -> paintBarGraph(g, w, h, norm, sym);
-            case "TrendChart" -> paintTrendChart(g, sym.getId(), w, h, val, min, max);
+            case "TrendChart" -> paintTrendChart(g, sym.getId(), w, h, val, min, max, timeMs);
             default -> {
                 return false;
             }
         }
         return true;
+    }
+
+    private static void paintCachedDiscrete(Graphics2D g, SymbolLayerCache cache, String type,
+                                            int w, int h, String variant,
+                                            java.util.function.Consumer<Graphics2D> painter) {
+        if (cache != null) {
+            CacheKey key = new CacheKey("IC:" + type, w, h, 0, false, false, variant);
+            BufferedImage img = cache.getOrCreateBackground(key, (cg, cw, ch) -> painter.accept(cg));
+            g.drawImage(img, 0, 0, null);
+        } else {
+            painter.accept(g);
+        }
     }
 
     private static double resolvePrimaryValue(ScadaSymbolInstance sym, ScadaProject project, RuntimeTagProvider tags) {
@@ -181,17 +228,19 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
 
     private static void paintNumericBox(Graphics2D g, int x, int y, int w, int h, int gPx,
                                         double val, String units, boolean editable) {
-        g.setColor(editable ? new Color(0x1B, 0x26, 0x31) : ScadaPalette.CUTOUT_DARK);
+        g.setColor(editable ? NUM_EDIT_BG : ScadaPalette.CUTOUT_DARK);
         g.fillRect(x, y, w, h);
-        g.setColor(editable ? new Color(0x54, 0x99, 0xC7) : ScadaPalette.OUTLINE_DARK);
+        g.setColor(editable ? NUM_EDIT_BORDER : ScadaPalette.OUTLINE_DARK);
         g.drawRect(x, y, w, h);
 
         String txt = (Math.abs(val - Math.rint(val)) < 1e-4)
                 ? String.format(Locale.US, "%.0f%s", val, units.isEmpty() ? "" : " " + units)
                 : String.format(Locale.US, "%.2f%s", val, units.isEmpty() ? "" : " " + units);
-        g.setColor(editable ? new Color(0xAE, 0xD6, 0xF1) : new Color(0x2E, 0xCC, 0x71));
-        g.setFont(new Font(Font.MONOSPACED, Font.BOLD, Math.max(9, Math.min(h - 4, gPx + 2))));
-        g.drawString(txt, x + 4, y + h / 2 + g.getFont().getSize() / 3);
+        g.setColor(editable ? NUM_EDIT_TEXT : NUM_RO_TEXT);
+        int fontSize = Math.max(9, Math.min(h - 4, gPx + 2));
+        Font font = MONO_BOLD_FONTS.computeIfAbsent(fontSize, s -> new Font(Font.MONOSPACED, Font.BOLD, s));
+        g.setFont(font);
+        g.drawString(txt, x + 4, y + h / 2 + fontSize / 3);
     }
 
     private static void paintBarGraph(Graphics2D g, int w, int h, double norm, ScadaSymbolInstance sym) {
@@ -204,16 +253,20 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
         g.drawRect(2, 2, w - 4, h - 4);
     }
 
-    private void paintTrendChart(Graphics2D g, String symId, int w, int h, double val, double min, double max) {
+    private void paintTrendChart(Graphics2D g, String symId, int w, int h, double val, double min, double max, long timeMs) {
         Deque<Double> buf = trendBuffers.computeIfAbsent(symId, k -> new ArrayDeque<>(MAX_TREND_POINTS));
-        synchronized (buf) {
-            if (buf.size() >= MAX_TREND_POINTS) buf.removeFirst();
-            buf.addLast(val);
+        Long prevMs = lastTrendSampleMs.get(symId);
+        if (prevMs == null || (timeMs - prevMs) >= TREND_SAMPLE_INTERVAL_MS || timeMs < prevMs) {
+            lastTrendSampleMs.put(symId, timeMs);
+            synchronized (buf) {
+                if (buf.size() >= MAX_TREND_POINTS) buf.removeFirst();
+                buf.addLast(val);
+            }
         }
 
         g.setColor(ScadaPalette.CUTOUT_DARK);
         g.fillRect(2, 2, w - 4, h - 4);
-        g.setColor(new Color(0x2E, 0x35, 0x3E));
+        g.setColor(TREND_GRID_COLOR);
         g.drawLine(2, h / 2, w - 2, h / 2);
 
         Double[] pts;
@@ -230,8 +283,8 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
                 if (i == 0) path.moveTo(px, py);
                 else path.lineTo(px, py);
             }
-            g.setColor(new Color(0x2E, 0xCC, 0x71));
-            g.setStroke(new BasicStroke(1.5f));
+            g.setColor(TREND_LINE_COLOR);
+            g.setStroke(TREND_STROKE);
             g.draw(path);
         }
         g.setColor(ScadaPalette.OUTLINE_DARK);

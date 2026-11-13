@@ -26,7 +26,17 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
     public interface ExtensionRenderer {
         boolean paint(Graphics2D g, ScadaSymbolInstance sym, int w, int h, int gPx,
                       ScadaProject project, RuntimeTagProvider tags, EquipmentState state, long timeMs);
+
+        default boolean paint(Graphics2D g, ScadaSymbolInstance sym, int w, int h, int gPx,
+                              ScadaProject project, RuntimeTagProvider tags, EquipmentState state,
+                              long timeMs, SymbolLayerCache layerCache) {
+            return paint(g, sym, w, h, gPx, project, tags, state, timeMs);
+        }
     }
+
+    private static final Color LABEL_COLOR = new Color(0x14, 0x17, 0x1A);
+    private Font cachedLabelFont;
+    private int cachedLabelFontSize = -1;
 
     private ExtensionRenderer extensionRenderer = new InstrumentationControlRenderer();
 
@@ -103,13 +113,13 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                             readBoundValue(sym, project, tagProvider, "SetpointTag", 21.5)));
             if (ElectricalSymbolRenderer.paint(lg, sym, localW, localH, state, phase)) {
                 // Rendered by ElectricalSymbolRenderer
-            } else if (HvacHeatingRenderer.paint(lg, sym, localW, localH, state, phase, speedPct, posPct, numVal)) {
+            } else if (HvacHeatingRenderer.paint(lg, sym, localW, localH, state, phase, speedPct, posPct, numVal, layerCache)) {
                 // Rendered by HvacHeatingRenderer
             } else if (WastewaterRenderer.paint(lg, sym, localW, localH, state, phase)) {
                 // Rendered by WastewaterRenderer
             } else if (ActuatorRenderer.paint(lg, sym, localW, localH, gPx, project, tagProvider, state, animationTimeMs)) {
                 // Rendered by ActuatorRenderer
-            } else if (ProcessFittingRenderer.paint(lg, sym, localW, localH, gPx, state, fluid, animationTimeMs)) {
+            } else if (ProcessFittingRenderer.paint(lg, sym, localW, localH, gPx, state, fluid, animationTimeMs, layerCache)) {
                 // Rendered by ProcessFittingRenderer
             } else if (MarSensorRenderer.paint(lg, sym, localW, localH, state, numVal)) {
                 // Rendered by MarSensorRenderer
@@ -117,13 +127,13 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                 RotatingMachineryRenderer.paint(lg, type, localW, localH, gPx, state, speedPct / 100.0, animationTimeMs, layerCache);
             } else if (isValveOrDamper(type)) {
                 String failSafe = sym.getProperty("FailSafe", "");
-                ValveDamperRenderer.paint(lg, type, localW, localH, gPx, open, posPct, failSafe);
+                ValveDamperRenderer.paint(lg, type, localW, localH, gPx, open, posPct, failSafe, layerCache);
             } else if (isTankOrVessel(type)) {
                 TankVesselRenderer.TankMarkers markers = resolveTankMarkers(sym, project, tagProvider, minLevel, levelSpan);
                 TankVesselRenderer.paint(lg, type, localW, localH, gPx, levelPct, fluid, state, animationTimeMs, layerCache, markers);
             } else if (isMaterialHandling(type)) {
                 MaterialHandlingRenderer.paint(lg, type, localW, localH, gPx, state, posPct, animationTimeMs);
-            } else if (extensionRenderer == null || !extensionRenderer.paint(lg, sym, localW, localH, gPx, project, tagProvider, state, animationTimeMs)) {
+            } else if (extensionRenderer == null || !extensionRenderer.paint(lg, sym, localW, localH, gPx, project, tagProvider, state, animationTimeMs, layerCache)) {
                 ScadaShader.paintBeveledHousing(lg, 2, 2, localW - 4, localH - 4, 4, Material.CAST_IRON);
             }
         } finally {
@@ -138,11 +148,16 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
 
         // Crisp equipment tag label below symbol
         if (!sym.getName().isBlank()) {
-            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(9, gPx)));
+            int fontSize = Math.max(9, gPx);
+            if (cachedLabelFont == null || cachedLabelFontSize != fontSize) {
+                cachedLabelFont = new Font(Font.SANS_SERIF, Font.BOLD, fontSize);
+                cachedLabelFontSize = fontSize;
+            }
+            g.setFont(cachedLabelFont);
             Rectangle2D bounds = g.getFontMetrics().getStringBounds(sym.getName(), g);
             float tx = (float) (x + (effW - bounds.getWidth()) / 2.0);
             float ty = (float) (y + effH + bounds.getHeight() + 1);
-            g.setColor(new Color(0x14, 0x17, 0x1A));
+            g.setColor(LABEL_COLOR);
             g.drawString(sym.getName(), tx, ty);
         }
     }

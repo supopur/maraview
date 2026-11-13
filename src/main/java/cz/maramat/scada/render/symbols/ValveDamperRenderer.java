@@ -3,6 +3,8 @@ package cz.maramat.scada.render.symbols;
 import cz.maramat.scada.render.ScadaPalette;
 import cz.maramat.scada.render.ScadaPalette.Material;
 import cz.maramat.scada.render.ScadaShader;
+import cz.maramat.scada.render.SymbolLayerCache;
+import cz.maramat.scada.render.SymbolLayerCache.CacheKey;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -14,6 +16,7 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
+import java.awt.image.BufferedImage;
 
 /**
  * 3D procedural renderers for all valve types and dampers, including position % fill and fail-open/fail-closed badges.
@@ -25,17 +28,38 @@ public final class ValveDamperRenderer {
 
     public static void paint(Graphics2D g, String type, int w, int h, int gPx,
                              boolean open, double positionPct) {
-        paint(g, type, w, h, gPx, open, positionPct, null);
+        paint(g, type, w, h, gPx, open, positionPct, null, null);
     }
 
     public static void paint(Graphics2D g, String type, int w, int h, int gPx,
                              boolean open, double positionPct, String failSafe) {
+        paint(g, type, w, h, gPx, open, positionPct, failSafe, null);
+    }
+
+    public static void paint(Graphics2D g, String type, int w, int h, int gPx,
+                             boolean open, double positionPct, String failSafe,
+                             SymbolLayerCache cache) {
+        double clampedPos = Math.max(0.0, Math.min(100.0, positionPct));
+        if (cache != null) {
+            String posKey = (positionPct < 0.0) ? "neg" : String.valueOf(Math.round(clampedPos));
+            String variant = gPx + "|" + (open ? "1" : "0") + "|" + posKey
+                    + "|" + (failSafe == null ? "" : failSafe);
+            CacheKey key = new CacheKey("VD:" + type, w, h, 0, false, false, variant);
+            BufferedImage img = cache.getOrCreateBackground(key, (cg, cw, ch) ->
+                    paintDirect(cg, type, cw, ch, gPx, open, positionPct, clampedPos, failSafe));
+            g.drawImage(img, 0, 0, null);
+            return;
+        }
+        paintDirect(g, type, w, h, gPx, open, positionPct, clampedPos, failSafe);
+    }
+
+    private static void paintDirect(Graphics2D g, String type, int w, int h, int gPx,
+                                    boolean open, double positionPct, double clampedPos, String failSafe) {
         double cy = (type.equals("HandValve") || type.equals("CheckValve")
                 || type.equals("BallValve") || type.equals("ButterflyValve")
                 || type.equals("PlugValve") || type.equals("FourWayValve")) ? h * 0.50
                 : (type.equals("MotorizedValve") || type.equals("PneumaticValve") ? h * 0.65 : h * 0.60);
         double cx = w * 0.50;
-        double clampedPos = Math.max(0.0, Math.min(100.0, positionPct));
 
         switch (type) {
             case "HandValve" -> {

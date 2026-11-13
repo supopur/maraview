@@ -5,6 +5,8 @@ import cz.maramat.scada.render.EquipmentState;
 import cz.maramat.scada.render.ScadaPalette;
 import cz.maramat.scada.render.ScadaPalette.Material;
 import cz.maramat.scada.render.ScadaShader;
+import cz.maramat.scada.render.SymbolLayerCache;
+import cz.maramat.scada.render.SymbolLayerCache.CacheKey;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -17,6 +19,7 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
+import java.awt.image.BufferedImage;
 
 /**
  * Dynamic vector renderer for Heating, Boilers, Heat Pumps, Manifolds, Radiators, and HVAC units.
@@ -38,6 +41,68 @@ public final class HvacHeatingRenderer {
     public static boolean paint(Graphics2D g, ScadaSymbolInstance sym,
                                 double w, double h, EquipmentState state, double phase,
                                 double speedPct, double posPct, double numVal) {
+        return paint(g, sym, w, h, state, phase, speedPct, posPct, numVal, null);
+    }
+
+    public static boolean paint(Graphics2D g, ScadaSymbolInstance sym,
+                                double w, double h, EquipmentState state, double phase,
+                                double speedPct, double posPct, double numVal,
+                                SymbolLayerCache cache) {
+        String type = sym.getSymbolType();
+        if (cache != null) {
+            int iw = Math.max(1, (int) Math.round(w));
+            int ih = Math.max(1, (int) Math.round(h));
+            if (isHeatPumpType(type)) {
+                String revMode = sym.getProperty("ReversingValve", "HEATING");
+                String badge = heatPumpBadge(type);
+                String variant = state.name() + "|" + revMode;
+                CacheKey key = new CacheKey("HV:" + type, iw, ih, 0, false, false, variant);
+                BufferedImage shell = cache.getOrCreateBackground(key, (cg, cw, ch) ->
+                        paintHeatPumpShell(cg, revMode, cw, ch, state, badge));
+                g.drawImage(shell, 0, 0, null);
+                paintHeatPumpBlades(g, w, h, state, phase);
+                return true;
+            }
+            if (isStaticHvacType(type)) {
+                CacheKey key = new CacheKey("HV:" + type, iw, ih, 0, false, false, state.name());
+                BufferedImage img = cache.getOrCreateBackground(key, (cg, cw, ch) ->
+                        paintDirect(cg, sym, cw, ch, state, 0.0, speedPct, posPct, numVal));
+                g.drawImage(img, 0, 0, null);
+                return true;
+            }
+        }
+        return paintDirect(g, sym, w, h, state, phase, speedPct, posPct, numVal);
+    }
+
+    private static boolean isHeatPumpType(String type) {
+        return "HeatPump".equals(type) || "AirSourceHeatPump".equals(type)
+                || "GroundSourceHeatPump".equals(type) || "WaterSourceHeatPump".equals(type);
+    }
+
+    private static String heatPumpBadge(String type) {
+        return switch (type) {
+            case "AirSourceHeatPump" -> "ASHP";
+            case "GroundSourceHeatPump" -> "GSHP";
+            case "WaterSourceHeatPump" -> "WSHP";
+            default -> "HP";
+        };
+    }
+
+    private static boolean isStaticHvacType(String type) {
+        return switch (type) {
+            case "ElectricBoiler", "PlateHeatExchanger", "ShellAndTubeHeatExchanger",
+                 "CoilHeatExchanger", "BufferTank", "ThermalStorageTank", "ExpansionVessel",
+                 "FloorHeatingManifold", "ZoneValve", "SolarThermalCollector",
+                 "ThreeWayMixingValve", "TwoWayControlValve", "SafetyReliefValve",
+                 "AirDirtSeparator", "HeatingCoil", "CoolingCoil", "HeatRecovery",
+                 "AirFilter", "Humidifier", "ExpansionValve", "RefrigerantReceiver" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean paintDirect(Graphics2D g, ScadaSymbolInstance sym,
+                                       double w, double h, EquipmentState state, double phase,
+                                       double speedPct, double posPct, double numVal) {
         return switch (sym.getSymbolType()) {
             case "Boiler" -> { paintBoiler(g, sym, w, h, state, phase, "BOILER"); yield true; }
             case "GasBoiler" -> { paintBoiler(g, sym, w, h, state, phase, "GAS"); yield true; }
@@ -176,6 +241,13 @@ public final class HvacHeatingRenderer {
 
     private static void paintHeatPump(Graphics2D g, ScadaSymbolInstance sym, double w, double h,
                                       EquipmentState state, double phase, String badge) {
+        String revMode = (sym != null) ? sym.getProperty("ReversingValve", "HEATING") : "HEATING";
+        paintHeatPumpShell(g, revMode, w, h, state, badge);
+        paintHeatPumpBlades(g, w, h, state, phase);
+    }
+
+    private static void paintHeatPumpShell(Graphics2D g, String revMode, double w, double h,
+                                           EquipmentState state, String badge) {
         ScadaShader.paintBeveledHousing(g, 2, 2, w - 4, h - 4, 7, Material.STAINLESS_STEEL);
 
         // Left fan / source section
@@ -188,20 +260,11 @@ public final class HvacHeatingRenderer {
         g.setColor(ScadaPalette.OUTLINE_DARK);
         g.draw(fanRing);
 
-        double angle = (state == EquipmentState.RUNNING) ? (phase * 0.25) : 0.0;
-        g.setColor(new Color(0xCF, 0xD8, 0xDC));
-        g.setStroke(new BasicStroke(2.0f));
-        for (int i = 0; i < 3; i++) {
-            double a = angle + i * (2.0 * Math.PI / 3.0);
-            g.draw(new Line2D.Double(fcx, fcy, fcx + Math.cos(a) * fd * 0.40, fcy + Math.sin(a) * fd * 0.40));
-        }
-
         // Right internal component state panel (Compressor, Evaporator, Condenser, Reversing Valve)
         g.setColor(new Color(0x26, 0x32, 0x38));
         g.fill(new RoundRectangle2D.Double(w * 0.54, h * 0.12, w * 0.40, h * 0.76, 4, 4));
         drawBadge(g, badge, w * 0.74, h * 0.25, Color.WHITE, 8);
 
-        String revMode = (sym != null) ? sym.getProperty("ReversingValve", "HEATING") : "HEATING";
         boolean cooling = "COOLING".equalsIgnoreCase(revMode);
         boolean defrost = "DEFROST".equalsIgnoreCase(revMode);
         boolean running = state == EquipmentState.RUNNING;
@@ -222,6 +285,25 @@ public final class HvacHeatingRenderer {
         Color revColor = defrost ? ScadaPalette.STATE_WARNING : (cooling ? COOL_BLUE : HOT_RED);
         ScadaShader.paintLedIndicator(g, ledX, h * 0.78, ledR, revColor, running || defrost);
         drawBadge(g, defrost ? "DEF" : (cooling ? "CLG" : "HTG"), w * 0.79, h * 0.81, Color.WHITE, 6);
+    }
+
+    private static final Color FAN_BLADE_COLOR = new Color(0xCF, 0xD8, 0xDC);
+    private static final BasicStroke FAN_BLADE_STROKE = new BasicStroke(2.0f);
+
+    private static void paintHeatPumpBlades(Graphics2D g, double w, double h,
+                                            EquipmentState state, double phase) {
+        double fd = Math.min(w * 0.42, h * 0.58);
+        double fcx = w * 0.28;
+        double fcy = h * 0.48;
+        double angle = (state == EquipmentState.RUNNING) ? (phase * 0.25) : 0.0;
+        g.setColor(FAN_BLADE_COLOR);
+        g.setStroke(FAN_BLADE_STROKE);
+        Line2D.Double blade = new Line2D.Double();
+        for (int i = 0; i < 3; i++) {
+            double a = angle + i * (2.0 * Math.PI / 3.0);
+            blade.setLine(fcx, fcy, fcx + Math.cos(a) * fd * 0.40, fcy + Math.sin(a) * fd * 0.40);
+            g.draw(blade);
+        }
     }
 
     private static void paintShellAndTube(Graphics2D g, double w, double h, EquipmentState state) {

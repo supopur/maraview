@@ -22,6 +22,8 @@ import cz.maramat.scada.tags.InternalTagProvider;
 import cz.maramat.scada.tags.RuntimeTagProvider;
 import cz.maramat.scada.undo.UndoManager50;
 
+import java.awt.AlphaComposite;
+import java.awt.image.BufferedImage;
 import javax.swing.AbstractAction;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
@@ -180,6 +182,14 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     private long simTimeMs = 0L;
     private long lastTickNs = System.nanoTime();
     private Map<String, FlowState> lastFlowMap = Map.of();
+
+    // Cached static pipe shell layer (rebuilt only on topology/zoom/AA/size changes)
+    private BufferedImage staticPipeLayer;
+    private int staticPipeLayerW = -1;
+    private int staticPipeLayerH = -1;
+    private int staticPipeLayerGPx = -1;
+    private boolean staticPipeLayerAA = false;
+    private long staticPipeLayerHash = 0L;
 
     public record PortHit(ScadaSymbolInstance symbol, PipePort port, PipePort.WorldPort worldPort) {
     }
@@ -652,6 +662,63 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         this.onDirtyCallback = cb;
     }
 
+    private BufferedImage ensureStaticPipeLayer(int gPx, int w, int h) {
+        if (screen == null || w <= 0 || h <= 0 || screen.getPipes().isEmpty()) {
+            return null;
+        }
+        long hash = computePipeTopologyHash(screen.getPipes());
+        if (staticPipeLayer != null
+                && staticPipeLayerW == w
+                && staticPipeLayerH == h
+                && staticPipeLayerGPx == gPx
+                && staticPipeLayerAA == antiAliasing
+                && staticPipeLayerHash == hash) {
+            return staticPipeLayer;
+        }
+        if (staticPipeLayer != null && (staticPipeLayerW != w || staticPipeLayerH != h)) {
+            staticPipeLayer.flush();
+            staticPipeLayer = null;
+        }
+        if (staticPipeLayer == null) {
+            staticPipeLayer = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        }
+        Graphics2D pg = staticPipeLayer.createGraphics();
+        try {
+            pg.setComposite(AlphaComposite.Clear);
+            pg.fillRect(0, 0, w, h);
+            pg.setComposite(AlphaComposite.SrcOver);
+            pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    antiAliasing ? RenderingHints.VALUE_ANTIALIAS_ON : RenderingHints.VALUE_ANTIALIAS_OFF);
+            pg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            for (ScadaPipe pipe : screen.getPipes()) {
+                PipeRenderer.paintPipeStatic(pg, pipe, gPx);
+            }
+        } finally {
+            pg.dispose();
+        }
+        staticPipeLayerW = w;
+        staticPipeLayerH = h;
+        staticPipeLayerGPx = gPx;
+        staticPipeLayerAA = antiAliasing;
+        staticPipeLayerHash = hash;
+        return staticPipeLayer;
+    }
+
+    private static long computePipeTopologyHash(List<ScadaPipe> pipes) {
+        long h = 1469598103934665603L;
+        for (ScadaPipe p : pipes) {
+            h = (h ^ p.getDiameter().ordinal()) * 1099511628211L;
+            h = (h ^ p.getConnectionType().ordinal()) * 1099511628211L;
+            List<GridPoint> verts = p.getVertices();
+            h = (h ^ verts.size()) * 1099511628211L;
+            for (GridPoint gp : verts) {
+                h = (h ^ gp.x()) * 1099511628211L;
+                h = (h ^ gp.y()) * 1099511628211L;
+            }
+        }
+        return h;
+    }
+
     public void markDirty() {
         if (project != null) {
             project.setDirty(true);
@@ -666,9 +733,12 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         super.paintComponent(gRaw);
         Graphics2D g = (Graphics2D) gRaw.create();
         try {
+            boolean simActive = (simState != SimState.STOPPED) && showFlowAnimation;
+            long renderTimeMs = (simState == SimState.STOPPED) ? 0L : simTimeMs;
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                     antiAliasing ? RenderingHints.VALUE_ANTIALIAS_ON : RenderingHints.VALUE_ANTIALIAS_OFF);
-            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING,
+                    simActive ? RenderingHints.VALUE_RENDER_SPEED : RenderingHints.VALUE_RENDER_QUALITY);
 
             int gPx = getGridSizePx();
             Color bg = (screen != null) ? screen.getBackgroundColor() : ScadaScreen.parseHexColor(ScadaScreen.BG_LIGHT_SLATE, Color.LIGHT_GRAY);
@@ -683,8 +753,6 @@ public class ScadaCanvas extends JComponent implements Scrollable {
 
             Map<String, FlowState> flowMap = FlowPropagationSolver.solve(screen, project, tagProvider);
             this.lastFlowMap = flowMap;
-            boolean simActive = (simState != SimState.STOPPED) && showFlowAnimation;
-            long renderTimeMs = (simState == SimState.STOPPED) ? 0L : simTimeMs;
 
             // 0. Graphical elements & pictures (background layer)
             for (ScadaGraphicElement ge : screen.getGraphics()) {
@@ -695,10 +763,14 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 GraphicElementRenderer.paint(g, creatingGraphic, gPx, true);
             }
 
-            // 1. Pipes & Electrical/Control Wires (rendered under equipment housings)
+            // 1. Pipes & Electrical/Control Wires (static shell cached; dynamic fluid/selection per frame)
+            BufferedImage pipeLayer = ensureStaticPipeLayer(gPx, getWidth(), getHeight());
+            if (pipeLayer != null) {
+                g.drawImage(pipeLayer, 0, 0, null);
+            }
             for (ScadaPipe pipe : screen.getPipes()) {
                 FlowState fs = flowMap.getOrDefault(pipe.getId(), FlowState.IDLE);
-                PipeRenderer.paintPipe(g, pipe, gPx, fs, simActive, flowDashPhasePx, selectedPipeIds.contains(pipe.getId()));
+                PipeRenderer.paintPipeDynamic(g, pipe, gPx, fs, simActive, flowDashPhasePx, selectedPipeIds.contains(pipe.getId()));
             }
 
             // 2. Symbols sorted by zIndex

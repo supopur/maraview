@@ -62,6 +62,7 @@ public class UserConfig {
 
     // Simulation & Alarms
     private int runtimeSyncIntervalMs = 250;
+    private int animationFps = 30;
     private boolean showFlowAnimation = true;
     private double flowAnimationSpeedPxPerSec = 36.0;
     private boolean autoStartSimulationInOperatorMode = true;
@@ -104,6 +105,7 @@ public class UserConfig {
         c.confirmUnsavedChanges = this.confirmUnsavedChanges;
 
         c.runtimeSyncIntervalMs = this.runtimeSyncIntervalMs;
+        c.animationFps = this.animationFps;
         c.showFlowAnimation = this.showFlowAnimation;
         c.flowAnimationSpeedPxPerSec = this.flowAnimationSpeedPxPerSec;
         c.autoStartSimulationInOperatorMode = this.autoStartSimulationInOperatorMode;
@@ -315,6 +317,20 @@ public class UserConfig {
 
     public void setRuntimeSyncIntervalMs(int runtimeSyncIntervalMs) {
         this.runtimeSyncIntervalMs = Math.max(50, Math.min(5000, runtimeSyncIntervalMs));
+    }
+
+    public int getAnimationFps() {
+        return animationFps;
+    }
+
+    public void setAnimationFps(int animationFps) {
+        if (animationFps <= 15) {
+            this.animationFps = 15;
+        } else if (animationFps >= 60) {
+            this.animationFps = 60;
+        } else {
+            this.animationFps = 30;
+        }
     }
 
     public boolean isShowFlowAnimation() {

@@ -104,6 +104,9 @@ public class MaraviewWindow extends JFrame {
         return t;
     });
     private final AtomicBoolean simPollInFlight = new AtomicBoolean(false);
+    private long lastUiRefreshMs = 0L;
+    private boolean tagTableDirty = false;
+    private static final long UI_REFRESH_INTERVAL_MS = 250L;
     private final AlarmEngine alarmEngine = new AlarmEngine();
     private final AlarmBannerPanel alarmBanner = new AlarmBannerPanel(alarmEngine);
     private final JTabbedPane screenTabs = new JTabbedPane();
@@ -307,10 +310,27 @@ public class MaraviewWindow extends JFrame {
         }
         if (currentSimState == SimState.RUNNING) {
             tagProvider.syncAll(project);
-            alarmEngine.evaluate(project, System.currentTimeMillis());
+            long now = System.currentTimeMillis();
+            alarmEngine.evaluate(project, now);
+            maybeRefreshPeriodicUi(now, true);
+        } else {
+            maybeRefreshPeriodicUi(System.currentTimeMillis(), false);
+        }
+    }
+
+    private void maybeRefreshPeriodicUi(long now, boolean includeTagTable) {
+        if (includeTagTable) {
+            tagTableDirty = true;
+        }
+        if (now - lastUiRefreshMs < UI_REFRESH_INTERVAL_MS) {
+            return;
+        }
+        lastUiRefreshMs = now;
+        if (tagTableDirty) {
+            tagTableDirty = false;
             refreshTagTable();
         }
-        alarmBanner.refresh(System.currentTimeMillis());
+        alarmBanner.refresh(now);
         updateConnectionBadge();
     }
 
@@ -349,14 +369,15 @@ public class MaraviewWindow extends JFrame {
                                 updateSimUiState(mapped);
                                 changed = true;
                             }
-                            alarmEngine.evaluate(project, System.currentTimeMillis());
+                            long now = System.currentTimeMillis();
+                            alarmEngine.evaluate(project, now);
                             if (changed) {
-                                refreshTagTable();
                                 repaintActiveCanvas();
                             }
+                            maybeRefreshPeriodicUi(now, changed);
+                        } else {
+                            maybeRefreshPeriodicUi(System.currentTimeMillis(), false);
                         }
-                        alarmBanner.refresh(System.currentTimeMillis());
-                        updateConnectionBadge();
                     } finally {
                         simPollInFlight.set(false);
                     }

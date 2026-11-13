@@ -5,6 +5,7 @@ import cz.maramat.scada.model.CommSettings;
 import cz.maramat.scada.model.ScadaScreen;
 
 import javax.swing.BorderFactory;
+import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JColorChooser;
@@ -17,6 +18,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingWorker;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.FlowLayout;
@@ -88,10 +90,27 @@ public final class UserPreferencesDialog {
         JComboBox<UserConfig.Theme> themeCombo = new JComboBox<>(UserConfig.Theme.values());
         themeCombo.setSelectedItem(working.getTheme());
 
-        String[] availableFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
-        JComboBox<String> fontCombo = new JComboBox<>(availableFonts);
+        JComboBox<String> fontCombo = new JComboBox<>(new String[]{working.getUiFontFamily()});
         fontCombo.setEditable(true);
         fontCombo.setSelectedItem(working.getUiFontFamily());
+        new SwingWorker<String[], Void>() {
+            @Override
+            protected String[] doInBackground() {
+                return GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    String[] availableFonts = get();
+                    Object current = fontCombo.getEditor().getItem();
+                    DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>(availableFonts);
+                    fontCombo.setModel(model);
+                    fontCombo.setSelectedItem(current);
+                } catch (Exception ignored) {
+                }
+            }
+        }.execute();
 
         JSpinner fontSizeSpin = new JSpinner(new SpinnerNumberModel(working.getUiFontSize(), 9, 20, 1));
         JSpinner dockWidthSpin = new JSpinner(new SpinnerNumberModel(working.getLeftDockWidth(), 160, 500, 10));
@@ -184,6 +203,8 @@ public final class UserPreferencesDialog {
 
         // --- Tab 4: Simulation & Alarms ---
         JSpinner syncIntervalSpin = new JSpinner(new SpinnerNumberModel(working.getRuntimeSyncIntervalMs(), 50, 5000, 25));
+        JComboBox<Integer> animFpsCombo = new JComboBox<>(new Integer[]{15, 30, 60});
+        animFpsCombo.setSelectedItem(working.getAnimationFps());
         JCheckBox flowAnimChk = new JCheckBox("Animate fluid flow in active pipes", working.isShowFlowAnimation());
         JSpinner flowSpeedSpin = new JSpinner(new SpinnerNumberModel(working.getFlowAnimationSpeedPxPerSec(), 5.0, 200.0, 2.0));
         JCheckBox autoStartOpChk = new JCheckBox("Auto-start simulation when entering Operator Mode", working.isAutoStartSimulationInOperatorMode());
@@ -195,6 +216,7 @@ public final class UserPreferencesDialog {
         GridBagConstraints g4 = createGbc();
         int r4 = 0;
         addRow(simPanel, g4, r4++, "Runtime Sync Interval (ms):", syncIntervalSpin);
+        addRow(simPanel, g4, r4++, "Animation Frame Rate (FPS):", animFpsCombo);
         addRow(simPanel, g4, r4++, "Flow Animation Speed (px/s):", flowSpeedSpin);
         addFullRow(simPanel, g4, r4++, flowAnimChk);
         addFullRow(simPanel, g4, r4++, autoStartOpChk);
@@ -258,6 +280,10 @@ public final class UserPreferencesDialog {
             working.setMouseWheelZoom(wheelZoomChk.isSelected());
 
             working.setRuntimeSyncIntervalMs(((Number) syncIntervalSpin.getValue()).intValue());
+            Integer fpsSel = (Integer) animFpsCombo.getSelectedItem();
+            if (fpsSel != null) {
+                working.setAnimationFps(fpsSel);
+            }
             working.setFlowAnimationSpeedPxPerSec(((Number) flowSpeedSpin.getValue()).doubleValue());
             working.setShowFlowAnimation(flowAnimChk.isSelected());
             working.setAutoStartSimulationInOperatorMode(autoStartOpChk.isSelected());

@@ -92,6 +92,7 @@ public final class UserConfigStore {
 
         Map<String, Object> simulation = new LinkedHashMap<>();
         simulation.put("runtimeSyncIntervalMs", config.getRuntimeSyncIntervalMs());
+        simulation.put("animationFps", config.getAnimationFps());
         simulation.put("showFlowAnimation", config.isShowFlowAnimation());
         simulation.put("flowAnimationSpeedPxPerSec", config.getFlowAnimationSpeedPxPerSec());
         simulation.put("autoStartSimulationInOperatorMode", config.isAutoStartSimulationInOperatorMode());
@@ -157,6 +158,7 @@ public final class UserConfigStore {
         Map<String, Object> simulation = getMap(root, "simulation");
         if (simulation != null) {
             config.setRuntimeSyncIntervalMs(getInt(simulation, "runtimeSyncIntervalMs", config.getRuntimeSyncIntervalMs()));
+            config.setAnimationFps(getInt(simulation, "animationFps", config.getAnimationFps()));
             config.setShowFlowAnimation(getBoolean(simulation, "showFlowAnimation", config.isShowFlowAnimation()));
             config.setFlowAnimationSpeedPxPerSec(getDouble(simulation, "flowAnimationSpeedPxPerSec", config.getFlowAnimationSpeedPxPerSec()));
             config.setAutoStartSimulationInOperatorMode(getBoolean(simulation, "autoStartSimulationInOperatorMode", config.isAutoStartSimulationInOperatorMode()));

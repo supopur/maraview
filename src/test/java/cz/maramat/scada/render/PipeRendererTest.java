@@ -40,4 +40,39 @@ class PipeRendererTest {
         int centerArgb = img.getRGB(60, 20);
         assertTrue((centerArgb >>> 24) > 0);
     }
+
+    @Test
+    void stoppedSimulationHidesBlueWaterInfill() {
+        ScadaPipe pipe = new ScadaPipe("p2");
+        pipe.setDiameter(PipeDiameter.LARGE);
+        pipe.setFluidType(FluidType.WATER);
+        pipe.setVertices(List.of(
+                new GridPoint(2, 2),
+                new GridPoint(10, 2)
+        ));
+
+        BufferedImage stoppedImg = new BufferedImage(140, 60, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage runningImg = new BufferedImage(140, 60, BufferedImage.TYPE_INT_ARGB);
+
+        Graphics2D gStopped = stoppedImg.createGraphics();
+        Graphics2D gRunning = runningImg.createGraphics();
+        try {
+            PipeRenderer.paintPipe(gStopped, pipe, 10, new FlowState(true, 1.0, FluidType.WATER), false, 0.0, false);
+            PipeRenderer.paintPipe(gRunning, pipe, 10, new FlowState(true, 1.0, FluidType.WATER), true, 4.0, false);
+        } finally {
+            gStopped.dispose();
+            gRunning.dispose();
+        }
+
+        int stoppedCenter = stoppedImg.getRGB(60, 20);
+        int runningCenter = runningImg.getRGB(60, 20);
+        int stoppedR = (stoppedCenter >> 16) & 0xFF;
+        int stoppedB = stoppedCenter & 0xFF;
+        int runningR = (runningCenter >> 16) & 0xFF;
+        int runningB = runningCenter & 0xFF;
+
+        // Stopped pipe is solid metallic grey (low B-R), running water pipe is vividly blue (B >> R)
+        assertTrue((stoppedB - stoppedR) < 35, "Stopped pipe should be metallic grey without blue water infill");
+        assertTrue((runningB - runningR) > 100, "Running water pipe should have blue water infill");
+    }
 }

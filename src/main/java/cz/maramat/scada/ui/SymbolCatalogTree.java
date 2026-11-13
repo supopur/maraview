@@ -4,13 +4,22 @@ import cz.maramat.scada.model.CardinalDirection;
 import cz.maramat.scada.model.PipePort;
 import cz.maramat.scada.model.ScadaSymbolInstance;
 
+import javax.swing.BorderFactory;
+import javax.swing.JComponent;
 import javax.swing.JTree;
+import javax.swing.TransferHandler;
 import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreePath;
+import java.awt.Font;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.util.List;
 
 /**
- * Left dock Symbol Library JTree with angled connectors and factory methods for default symbol sizes and ports.
+ * Left dock Symbol Library JTree styled identically to MaraFlow's LibraryTreePanel,
+ * supporting drag-and-drop of leaf symbols onto ScadaCanvas.
  */
 public final class SymbolCatalogTree {
 
@@ -59,8 +68,37 @@ public final class SymbolCatalogTree {
         root.add(controls);
 
         JTree tree = new JTree(new DefaultTreeModel(root));
-        tree.putClientProperty("JTree.lineStyle", "Angled");
+        tree.setRootVisible(false);
         tree.setShowsRootHandles(true);
+        tree.setRowHeight(18);
+        tree.putClientProperty("JTree.lineStyle", "Angled");
+        tree.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
+        if (tree.getCellRenderer() instanceof DefaultTreeCellRenderer renderer) {
+            renderer.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            renderer.setOpenIcon(null);
+            renderer.setClosedIcon(null);
+            renderer.setLeafIcon(null);
+        }
+
+        // MaraFlow-style drag-and-drop for leaf nodes
+        tree.setDragEnabled(true);
+        tree.setTransferHandler(new TransferHandler() {
+            @Override
+            public int getSourceActions(JComponent c) {
+                return COPY;
+            }
+
+            @Override
+            protected Transferable createTransferable(JComponent c) {
+                TreePath path = tree.getSelectionPath();
+                if (path == null) return null;
+                DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                if (!node.isLeaf()) return null;
+                return new StringSelection(String.valueOf(node.getUserObject()));
+            }
+        });
+
         for (int i = 0; i < tree.getRowCount(); i++) {
             tree.expandRow(i);
         }

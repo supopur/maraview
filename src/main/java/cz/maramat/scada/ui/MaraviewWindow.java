@@ -13,10 +13,14 @@ import cz.maramat.scada.routing.PipeRouter;
 import cz.maramat.scada.tags.InternalTagProvider;
 import cz.maramat.scada.tags.MflTagImporter;
 import cz.maramat.scada.tags.ScadaTag;
+import cz.maramat.scada.tags.TagQuality;
 import cz.maramat.scada.tags.TagSourceType;
+import cz.maramat.scada.ui.ScadaCanvas.SimState;
 
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.ButtonGroup;
+import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
@@ -37,12 +41,13 @@ import javax.swing.KeyStroke;
 import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
-import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Insets;
+import java.awt.Toolkit;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -52,7 +57,7 @@ import java.io.File;
 import java.io.IOException;
 
 /**
- * Main Maraview SCADA Designer & Operator Runtime window.
+ * Main Maraview SCADA Designer & Operator Runtime window matching MaraFlow's Win95/Win7 chrome.
  */
 public class MaraviewWindow extends JFrame {
 
@@ -66,15 +71,22 @@ public class MaraviewWindow extends JFrame {
     private final JTable tagTable;
     private final JLabel zoomLabel = new JLabel(" 100% ");
     private final JLabel statusLabel = new JLabel(" Ready");
-    private final JToggleButton simPreviewBtn;
-    private final JToggleButton operatorModeBtn;
+
+    private JButton playPauseBtn;
+    private JButton stopBtn;
+    private JButton stepBtn;
+    private JToggleButton simPreviewBtn;
+    private JToggleButton operatorModeBtn;
+
     private final JPanel topBarHost = new JPanel(new BorderLayout());
     private final JPanel operatorBar = new JPanel(new BorderLayout());
     private final JPanel operatorScreenButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
     private final JLabel connStatusLabel = new JLabel(" ONLINE ");
     private final Timer runtimeSyncTimer;
     private JSplitPane mainSplit;
+    private DockableSectionPanel leftDockSection;
     private JToolBar quickToolbar;
+    private SimState currentSimState = SimState.STOPPED;
     private boolean operatorMode = false;
 
     public MaraviewWindow(ScadaProject initialProject, boolean startInOperatorMode) {
@@ -90,9 +102,6 @@ public class MaraviewWindow extends JFrame {
                 dispose();
             }
         });
-
-        this.simPreviewBtn = new JToggleButton("Sim Preview", ScadaVectorIcons.playSim(), true);
-        this.operatorModeBtn = new JToggleButton("Operator Mode", ScadaVectorIcons.operatorMode(), false);
 
         this.tagTableModel = new DefaultTableModel(new Object[]{"Tag", "Type", "Source", "Value"}, 0) {
             @Override
@@ -128,25 +137,22 @@ public class MaraviewWindow extends JFrame {
         add(topBarHost, BorderLayout.NORTH);
 
         JTree symbolTree = SymbolCatalogTree.createTree();
-        symbolTree.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2 && !operatorMode) {
-                    Object sel = symbolTree.getLastSelectedPathComponent();
-                    if (sel instanceof DefaultMutableTreeNode node && node.isLeaf()) {
-                        placeSymbolFromLibrary(String.valueOf(node.getUserObject()));
-                    }
-                }
-            }
-        });
+        JScrollPane treeScroll = new JScrollPane(symbolTree);
+        treeScroll.setBorder(null);
+        JScrollPane tagScroll = new JScrollPane(tagTable);
+        tagScroll.setBorder(null);
 
-        leftDockTabs.addTab("Symbol Library", new JScrollPane(symbolTree));
-        leftDockTabs.addTab("Tag Browser", new JScrollPane(tagTable));
-        leftDockTabs.setPreferredSize(new Dimension(250, 600));
+        leftDockTabs.addTab("Symbols", treeScroll);
+        leftDockTabs.addTab("Tags", tagScroll);
+        leftDockSection = new DockableSectionPanel("Library & Tags", leftDockTabs,
+                () -> leftDockSection.setVisible(false));
+        leftDockSection.setPreferredSize(new Dimension(245, 600));
 
-        mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDockTabs, screenTabs);
+        DockableSectionPanel viewportSection = new DockableSectionPanel("Process Viewport", screenTabs, null);
+
+        mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDockSection, viewportSection);
         mainSplit.setDividerSize(5);
-        mainSplit.setDividerLocation(250);
+        mainSplit.setDividerLocation(245);
         add(mainSplit, BorderLayout.CENTER);
 
         JPanel bottomStack = new JPanel(new BorderLayout());
@@ -157,21 +163,29 @@ public class MaraviewWindow extends JFrame {
         bottomStack.add(statusBar, BorderLayout.SOUTH);
         add(bottomStack, BorderLayout.SOUTH);
 
-        this.runtimeSyncTimer = new Timer(250, e -> {
-            tagProvider.syncAll(project);
-            alarmEngine.evaluate(project, System.currentTimeMillis());
-            alarmBanner.refresh(System.currentTimeMillis());
-            updateConnectionBadge();
-        });
+        this.runtimeSyncTimer = new Timer(250, e -> onRuntimeTick());
         this.runtimeSyncTimer.start();
 
         loadProjectIntoUi(this.project);
+        updateSimUiState(SimState.STOPPED);
         if (startInOperatorMode) {
             setOperatorMode(true);
+            onSimPlay();
         }
     }
 
+    private void onRuntimeTick() {
+        if (currentSimState == SimState.RUNNING) {
+            tagProvider.syncAll(project);
+            alarmEngine.evaluate(project, System.currentTimeMillis());
+            refreshTagTable();
+        }
+        alarmBanner.refresh(System.currentTimeMillis());
+        updateConnectionBadge();
+    }
+
     private JMenuBar buildMenuBar() {
+        int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
         JMenuBar bar = new JMenuBar();
 
         JMenu fileMenu = new JMenu("File");
@@ -203,16 +217,24 @@ public class MaraviewWindow extends JFrame {
         JMenuItem undoItem = new JMenuItem("Undo");
         undoItem.addActionListener(e -> {
             ScadaCanvas c = getActiveCanvas();
-            if (c != null && c.getUndoManager().undo(c.getScreen())) {
-                c.repaint();
-            }
+            if (c != null && c.getUndoManager().undo(c.getScreen())) c.repaint();
         });
         JMenuItem redoItem = new JMenuItem("Redo");
         redoItem.addActionListener(e -> {
             ScadaCanvas c = getActiveCanvas();
-            if (c != null && c.getUndoManager().redo(c.getScreen())) {
-                c.repaint();
-            }
+            if (c != null && c.getUndoManager().redo(c.getScreen())) c.repaint();
+        });
+        JMenuItem copyItem = new JMenuItem("Copy");
+        copyItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_C, menuMask));
+        copyItem.addActionListener(e -> {
+            ScadaCanvas c = getActiveCanvas();
+            if (c != null) c.copySelection();
+        });
+        JMenuItem pasteItem = new JMenuItem("Paste");
+        pasteItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_V, menuMask));
+        pasteItem.addActionListener(e -> {
+            ScadaCanvas c = getActiveCanvas();
+            if (c != null) c.pasteFromClipboard();
         });
         JMenuItem rotItem = new JMenuItem("Rotate 90 deg");
         rotItem.addActionListener(e -> {
@@ -226,6 +248,9 @@ public class MaraviewWindow extends JFrame {
         });
         editMenu.add(undoItem);
         editMenu.add(redoItem);
+        editMenu.addSeparator();
+        editMenu.add(copyItem);
+        editMenu.add(pasteItem);
         editMenu.addSeparator();
         editMenu.add(rotItem);
         editMenu.add(delItem);
@@ -258,9 +283,15 @@ public class MaraviewWindow extends JFrame {
         tagsMenu.add(importTagsItem);
 
         JMenu windowMenu = new JMenu("Window");
+        JMenuItem showLibItem = new JMenuItem("Show Library & Tags");
+        showLibItem.addActionListener(e -> {
+            leftDockSection.setVisible(true);
+            mainSplit.setDividerLocation(245);
+        });
         JMenuItem opItem = new JMenuItem("Toggle Operator Mode");
         opItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F5, 0));
         opItem.addActionListener(e -> setOperatorMode(!operatorMode));
+        windowMenu.add(showLibItem);
         windowMenu.add(opItem);
 
         JMenu helpMenu = new JMenu("Help");
@@ -283,91 +314,184 @@ public class MaraviewWindow extends JFrame {
     private JToolBar buildToolbar() {
         JToolBar tb = new JToolBar();
         tb.setFloatable(false);
+        tb.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0xB8, 0xB8, 0xB8)));
+        tb.setMargin(new Insets(2, 4, 2, 4));
 
-        JToggleButton cursorBtn = new JToggleButton("Cursor", ScadaVectorIcons.cursor(), true);
-        JToggleButton pipeBtn = new JToggleButton("Pipe", ScadaVectorIcons.pipe(), false);
+        JToggleButton cursorBtn = createToggleBtn(ScadaVectorIcons.cursor(), "Cursor / Select Tool");
+        cursorBtn.setSelected(true);
+        JToggleButton pipeBtn = createToggleBtn(ScadaVectorIcons.pipe(), "Pipe Routing Tool");
         ButtonGroup toolGroup = new ButtonGroup();
         toolGroup.add(cursorBtn);
         toolGroup.add(pipeBtn);
         cursorBtn.addActionListener(e -> setActiveToolMode(ScadaCanvas.ToolMode.CURSOR));
         pipeBtn.addActionListener(e -> setActiveToolMode(ScadaCanvas.ToolMode.PIPE));
 
-        JButton rotBtn = new JButton(ScadaVectorIcons.rotate90());
-        rotBtn.setToolTipText("Rotate 90 deg (R)");
+        JButton rotBtn = createActionBtn(ScadaVectorIcons.rotate90(), "Rotate 90 deg (R)");
         rotBtn.addActionListener(e -> {
             ScadaCanvas c = getActiveCanvas();
             if (c != null) c.rotateSelected90CW();
         });
-
-        JButton flipHBtn = new JButton(ScadaVectorIcons.flipH());
-        flipHBtn.setToolTipText("Flip Horizontal");
+        JButton flipHBtn = createActionBtn(ScadaVectorIcons.flipH(), "Flip Horizontal");
         flipHBtn.addActionListener(e -> {
             ScadaCanvas c = getActiveCanvas();
             if (c != null) c.flipSelectedHorizontal();
         });
-
-        JButton flipVBtn = new JButton(ScadaVectorIcons.flipV());
-        flipVBtn.setToolTipText("Flip Vertical");
+        JButton flipVBtn = createActionBtn(ScadaVectorIcons.flipV(), "Flip Vertical");
         flipVBtn.addActionListener(e -> {
             ScadaCanvas c = getActiveCanvas();
             if (c != null) c.flipSelectedVertical();
         });
 
-        JButton undoBtn = new JButton(ScadaVectorIcons.undo());
-        undoBtn.setToolTipText("Undo");
+        JButton undoBtn = createActionBtn(ScadaVectorIcons.undo(), "Undo");
         undoBtn.addActionListener(e -> {
             ScadaCanvas c = getActiveCanvas();
-            if (c != null && c.getUndoManager().undo(c.getScreen())) {
-                c.repaint();
-            }
+            if (c != null && c.getUndoManager().undo(c.getScreen())) c.repaint();
         });
-
-        JButton redoBtn = new JButton(ScadaVectorIcons.redo());
-        redoBtn.setToolTipText("Redo");
+        JButton redoBtn = createActionBtn(ScadaVectorIcons.redo(), "Redo");
         redoBtn.addActionListener(e -> {
             ScadaCanvas c = getActiveCanvas();
-            if (c != null && c.getUndoManager().redo(c.getScreen())) {
-                c.repaint();
+            if (c != null && c.getUndoManager().redo(c.getScreen())) c.repaint();
+        });
+
+        JButton zoomOutBtn = createActionBtn(ScadaVectorIcons.zoomOut(), "Zoom Out");
+        zoomOutBtn.addActionListener(e -> onZoomOut());
+        JButton zoomInBtn = createActionBtn(ScadaVectorIcons.zoomIn(), "Zoom In");
+        zoomInBtn.addActionListener(e -> onZoomIn());
+        zoomLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+
+        // MaraFlow-style Play / Pause / Stop / Step simulation controls
+        playPauseBtn = createActionBtn(ScadaVectorIcons.playIcon(), "Play Simulation");
+        playPauseBtn.addActionListener(e -> {
+            if (currentSimState == SimState.RUNNING) {
+                onSimPause();
+            } else {
+                onSimPlay();
+            }
+        });
+        stopBtn = createActionBtn(ScadaVectorIcons.stopIcon(), "Halt / Stop Simulation (Resets all I/O)");
+        stopBtn.addActionListener(e -> onSimStop());
+
+        stepBtn = createActionBtn(ScadaVectorIcons.stepIcon(), "Step Simulation (1 Tick)");
+        stepBtn.addActionListener(e -> onSimStep());
+
+        simPreviewBtn = new JToggleButton("Preview", false);
+        simPreviewBtn.setFocusable(false);
+        simPreviewBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        simPreviewBtn.setMargin(new Insets(2, 6, 2, 6));
+        simPreviewBtn.setToolTipText("Toggle Live Simulation Preview (Off resets all I/O to 0)");
+        simPreviewBtn.addActionListener(e -> {
+            if (simPreviewBtn.isSelected()) {
+                onSimPlay();
+            } else {
+                onSimStop();
             }
         });
 
-        JButton zoomOutBtn = new JButton(ScadaVectorIcons.zoomOut());
-        zoomOutBtn.setToolTipText("Zoom Out");
-        zoomOutBtn.addActionListener(e -> onZoomOut());
-
-        JButton zoomInBtn = new JButton(ScadaVectorIcons.zoomIn());
-        zoomInBtn.setToolTipText("Zoom In");
-        zoomInBtn.addActionListener(e -> onZoomIn());
-
-        simPreviewBtn.addActionListener(e -> {
-            ScadaCanvas c = getActiveCanvas();
-            if (c != null) c.setShowFlowAnimation(simPreviewBtn.isSelected());
-        });
-
+        operatorModeBtn = createToggleBtn(ScadaVectorIcons.operatorMode(), "Operator View Mode (F5)");
         operatorModeBtn.addActionListener(e -> setOperatorMode(operatorModeBtn.isSelected()));
 
-        JButton linkMflBtn = new JButton("Link .mfl", ScadaVectorIcons.linkMfl());
+        JButton linkMflBtn = createActionBtn(ScadaVectorIcons.linkMfl(), "Link Maraflow .mfl Project");
         linkMflBtn.addActionListener(e -> onLinkMfl());
 
         tb.add(cursorBtn);
         tb.add(pipeBtn);
-        tb.addSeparator();
+        addSplitter(tb);
         tb.add(rotBtn);
         tb.add(flipHBtn);
         tb.add(flipVBtn);
-        tb.addSeparator();
+        addSplitter(tb);
         tb.add(undoBtn);
         tb.add(redoBtn);
-        tb.addSeparator();
+        addSplitter(tb);
         tb.add(zoomOutBtn);
         tb.add(zoomLabel);
         tb.add(zoomInBtn);
-        tb.addSeparator();
+        addSplitter(tb);
+        tb.add(playPauseBtn);
+        tb.add(stopBtn);
+        tb.add(stepBtn);
+        tb.add(Box.createHorizontalStrut(4));
         tb.add(simPreviewBtn);
+        addSplitter(tb);
         tb.add(operatorModeBtn);
-        tb.addSeparator();
         tb.add(linkMflBtn);
         return tb;
+    }
+
+    private static JButton createActionBtn(Icon icon, String tooltip) {
+        JButton b = new JButton(icon);
+        b.setFocusable(false);
+        b.setToolTipText(tooltip);
+        b.setMargin(new Insets(3, 4, 3, 4));
+        return b;
+    }
+
+    private static JToggleButton createToggleBtn(Icon icon, String tooltip) {
+        JToggleButton b = new JToggleButton(icon);
+        b.setFocusable(false);
+        b.setToolTipText(tooltip);
+        b.setMargin(new Insets(3, 4, 3, 4));
+        return b;
+    }
+
+    private static void addSplitter(JToolBar tb) {
+        tb.add(Box.createHorizontalStrut(4));
+        tb.add(new JToolBar.Separator(new Dimension(6, 20)));
+        tb.add(Box.createHorizontalStrut(4));
+    }
+
+    public void onSimPlay() {
+        updateSimUiState(SimState.RUNNING);
+        statusLabel.setText(" Simulation Running");
+    }
+
+    public void onSimPause() {
+        updateSimUiState(SimState.PAUSED);
+        statusLabel.setText(" Simulation Paused");
+    }
+
+    public void onSimStop() {
+        resetAllIoAndStates();
+        updateSimUiState(SimState.STOPPED);
+        statusLabel.setText(" Simulation Stopped (All I/O Reset to 0)");
+    }
+
+    public void onSimStep() {
+        ScadaCanvas c = getActiveCanvas();
+        if (c != null) {
+            c.stepSimulation();
+            updateSimUiState(c.getSimState());
+            statusLabel.setText(" Simulation Stepped");
+        }
+    }
+
+    private void resetAllIoAndStates() {
+        if (project != null) {
+            for (ScadaTag tag : project.getTags().values()) {
+                tag.setRuntimeValue(0.0);
+                tag.setRuntimeQuality(TagQuality.GOOD);
+            }
+            alarmEngine.acknowledgeAll();
+            alarmEngine.evaluate(project, System.currentTimeMillis());
+        }
+        refreshTagTable();
+        alarmBanner.refresh(System.currentTimeMillis());
+    }
+
+    private void updateSimUiState(SimState state) {
+        this.currentSimState = state;
+        boolean running = (state == SimState.RUNNING);
+        playPauseBtn.setIcon(running ? ScadaVectorIcons.pauseIcon() : ScadaVectorIcons.playIcon());
+        playPauseBtn.setToolTipText(running ? "Pause Simulation" : (state == SimState.PAUSED ? "Resume Simulation" : "Play Simulation"));
+        stopBtn.setEnabled(state != SimState.STOPPED);
+        simPreviewBtn.setSelected(state != SimState.STOPPED);
+
+        for (int i = 0; i < screenTabs.getTabCount(); i++) {
+            if (screenTabs.getComponentAt(i) instanceof JScrollPane sp
+                    && sp.getViewport().getView() instanceof ScadaCanvas c) {
+                c.setSimState(state);
+            }
+        }
     }
 
     private void loadProjectIntoUi(ScadaProject newProject) {
@@ -375,18 +499,29 @@ public class MaraviewWindow extends JFrame {
         this.project = newProject;
         screenTabs.removeAll();
         for (ScadaScreen screen : project.getScreens()) {
-            ScadaCanvas canvas = new ScadaCanvas(project, screen);
-            canvas.setTagProvider(tagProvider);
-            canvas.setShowFlowAnimation(simPreviewBtn.isSelected());
-            canvas.setOperatorMode(operatorMode);
-            JScrollPane scroll = new JScrollPane(canvas);
-            scroll.getVerticalScrollBar().setUnitIncrement(20);
-            scroll.getHorizontalScrollBar().setUnitIncrement(20);
-            screenTabs.addTab(screen.getName(), scroll);
+            addScreenTab(screen);
         }
         refreshTagTable();
         rebuildOperatorScreenButtons();
         updateTitle();
+    }
+
+    private void addScreenTab(ScadaScreen screen) {
+        ScadaCanvas canvas = new ScadaCanvas(project, screen);
+        canvas.setTagProvider(tagProvider);
+        canvas.setSimState(currentSimState);
+        canvas.setOperatorMode(operatorMode);
+        canvas.setOnStepCallback(() -> {
+            updateSimUiState(canvas.getSimState());
+            alarmEngine.evaluate(project, System.currentTimeMillis());
+            refreshTagTable();
+            alarmBanner.refresh(System.currentTimeMillis());
+        });
+        JScrollPane scroll = new JScrollPane(canvas);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(20);
+        scroll.getHorizontalScrollBar().setUnitIncrement(20);
+        screenTabs.addTab(screen.getName(), scroll);
     }
 
     private void buildOperatorBar() {
@@ -465,7 +600,7 @@ public class MaraviewWindow extends JFrame {
     private void setOperatorMode(boolean opMode) {
         this.operatorMode = opMode;
         operatorModeBtn.setSelected(opMode);
-        leftDockTabs.setVisible(!opMode);
+        leftDockSection.setVisible(!opMode);
         topBarHost.removeAll();
         topBarHost.add(opMode ? operatorBar : quickToolbar, BorderLayout.CENTER);
         topBarHost.revalidate();
@@ -474,7 +609,7 @@ public class MaraviewWindow extends JFrame {
             getJMenuBar().setVisible(!opMode);
         }
         if (!opMode) {
-            mainSplit.setDividerLocation(250);
+            mainSplit.setDividerLocation(245);
         }
         for (int i = 0; i < screenTabs.getTabCount(); i++) {
             if (screenTabs.getComponentAt(i) instanceof JScrollPane sp
@@ -483,21 +618,6 @@ public class MaraviewWindow extends JFrame {
             }
         }
         updateTitle();
-    }
-
-    private void placeSymbolFromLibrary(String symbolType) {
-        ScadaCanvas c = getActiveCanvas();
-        if (c == null || c.getScreen() == null) return;
-        ScadaScreen scr = c.getScreen();
-        c.getUndoManager().recordSnapshot("Add " + symbolType, scr);
-        int idx = scr.getSymbols().size() + 1;
-        ScadaSymbolInstance sym = SymbolCatalogTree.createDefaultInstance(symbolType, symbolType + "-" + idx, 10, 10);
-        scr.getSymbols().add(sym);
-        c.getSelectedSymbolIds().clear();
-        c.getSelectedSymbolIds().add(sym.getId());
-        project.setDirty(true);
-        c.repaint();
-        statusLabel.setText(" Placed " + sym.getName());
     }
 
     private void onZoomIn() {
@@ -521,10 +641,9 @@ public class MaraviewWindow extends JFrame {
         if (name == null || name.isBlank()) return;
         ScadaScreen screen = new ScadaScreen(name.trim());
         project.getScreens().add(screen);
-        ScadaCanvas canvas = new ScadaCanvas(project, screen);
-        canvas.setTagProvider(tagProvider);
-        screenTabs.addTab(screen.getName(), new JScrollPane(canvas));
+        addScreenTab(screen);
         screenTabs.setSelectedIndex(screenTabs.getTabCount() - 1);
+        rebuildOperatorScreenButtons();
         project.setDirty(true);
     }
 

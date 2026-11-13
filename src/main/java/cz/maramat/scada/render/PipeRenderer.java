@@ -12,6 +12,7 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.LinearGradientPaint;
 import java.awt.Paint;
+import java.awt.Shape;
 import java.awt.Stroke;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
@@ -24,7 +25,7 @@ import java.util.List;
  * 3-pass 3D multi-pass renderer for orthogonal ScadaPipes:
  * Pass 1: 3D cylindrical horizontal/vertical pipe segments.
  * Pass 2: 3D mitered/rounded elbows, tees, and bolted port flanges.
- * Pass 3: Animated central fluid cutaway with velocity-driven dashPhase.
+ * Pass 3: Animated water/fluid cutaway with moving lighter bubbles (only when simulation is running/paused).
  */
 public final class PipeRenderer {
 
@@ -35,7 +36,7 @@ public final class PipeRenderer {
     }
 
     public static void paintPipe(Graphics2D g, ScadaPipe pipe, int gridSizePx,
-                                 FlowState flowState, boolean showFlowAnimation,
+                                 FlowState flowState, boolean simActive,
                                  double dashPhasePx, boolean selected) {
         if (pipe == null) return;
         List<GridPoint> verts = pipe.getVertices();
@@ -47,7 +48,7 @@ public final class PipeRenderer {
         Paint oldPaint = g.getPaint();
         Stroke oldStroke = g.getStroke();
 
-        // Pass 1: 3D cylindrical pipe segments
+        // Pass 1: 3D cylindrical pipe segments (solid metallic grey)
         for (int i = 0; i < verts.size() - 1; i++) {
             GridPoint a = verts.get(i);
             GridPoint b = verts.get(i + 1);
@@ -79,7 +80,6 @@ public final class PipeRenderer {
             paintElbowCollar(g, cx, cy, diameterPx);
         }
 
-        // End flanges at port attachments / tee origin
         GridPoint first = verts.getFirst();
         GridPoint second = verts.get(1);
         CardinalDirection startDir = segmentDirection(first, second);
@@ -95,12 +95,12 @@ public final class PipeRenderer {
                     diameterPx + 6.0, Math.max(4.0, gridSizePx * 0.45), endDir);
         }
 
-        // Pass 3: Animated central fluid cutaway / flow core
+        // Pass 3: Water/Fluid infill + moving lighter bubbles (hidden completely when sim is stopped)
         FluidType fluid = (flowState != null && flowState.fluidType() != null)
                 ? flowState.fluidType()
                 : pipe.getFluidType();
-        if (fluid != FluidType.EMPTY && flowState != null && flowState.pressurized()) {
-            double coreWidth = Math.max(2.0, diameterPx * 0.45);
+        if (simActive && fluid != FluidType.EMPTY && flowState != null && flowState.pressurized()) {
+            double coreWidth = Math.max(3.5, diameterPx * 0.50);
             g.setColor(fluid.getBaseColor());
             g.setStroke(new BasicStroke((float) coreWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             for (int i = 0; i < verts.size() - 1; i++) {
@@ -112,29 +112,23 @@ public final class PipeRenderer {
                 ));
             }
 
-            if (showFlowAnimation && flowState.flowRate() > 0.0 && fluid.getFlowDashColor() != null) {
-                float dashLen = (float) Math.max(5.0, gridSizePx * 0.65);
-                float gapLen = (float) Math.max(4.0, gridSizePx * 0.55);
-                float phase = (float) ((dashPhasePx * Math.max(0.3, flowState.flowRate())) % (dashLen + gapLen));
-                if (phase < 0) phase += (dashLen + gapLen);
-
-                g.setColor(fluid.getFlowDashColor());
-                g.setStroke(new BasicStroke(
-                        (float) Math.max(1.5, coreWidth * 0.52),
-                        BasicStroke.CAP_ROUND,
-                        BasicStroke.JOIN_ROUND,
-                        10.0f,
-                        new float[]{dashLen, gapLen},
-                        phase
+            // Inner lighter water sheen
+            g.setColor(new Color(fluid.getHighlightColor().getRed(), fluid.getHighlightColor().getGreen(),
+                    fluid.getHighlightColor().getBlue(), 140));
+            g.setStroke(new BasicStroke((float) Math.max(1.5, coreWidth * 0.42), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            for (int i = 0; i < verts.size() - 1; i++) {
+                GridPoint a = verts.get(i);
+                GridPoint b = verts.get(i + 1);
+                g.draw(new Line2D.Double(
+                        a.x() * (double) gridSizePx, a.y() * (double) gridSizePx,
+                        b.x() * (double) gridSizePx, b.y() * (double) gridSizePx
                 ));
-                for (int i = 0; i < verts.size() - 1; i++) {
-                    GridPoint a = verts.get(i);
-                    GridPoint b = verts.get(i + 1);
-                    g.draw(new Line2D.Double(
-                            a.x() * (double) gridSizePx, a.y() * (double) gridSizePx,
-                            b.x() * (double) gridSizePx, b.y() * (double) gridSizePx
-                    ));
-                }
+            }
+
+            // Moving lighter water bubbles along each segment
+            if (flowState.flowRate() > 0.0 && fluid.getFlowDashColor() != null) {
+                paintFlowBubbles(g, verts, gridSizePx, coreWidth, fluid.getFlowDashColor(),
+                        dashPhasePx * Math.max(0.35, flowState.flowRate()));
             }
         }
 
@@ -154,6 +148,48 @@ public final class PipeRenderer {
 
         g.setPaint(oldPaint);
         g.setStroke(oldStroke);
+    }
+
+    private static void paintFlowBubbles(Graphics2D g, List<GridPoint> verts, int gridSizePx,
+                                         double coreWidth, Color bubbleColor, double phasePx) {
+        double spacing = Math.max(14.0, gridSizePx * 1.6);
+        double bubbleR = Math.max(1.8, coreWidth * 0.30);
+        Color specWhite = new Color(255, 255, 255, 200);
+        Color softBubble = new Color(bubbleColor.getRed(), bubbleColor.getGreen(), bubbleColor.getBlue(), 210);
+
+        double accumulatedLen = 0.0;
+        for (int i = 0; i < verts.size() - 1; i++) {
+            GridPoint a = verts.get(i);
+            GridPoint b = verts.get(i + 1);
+            double x1 = a.x() * (double) gridSizePx;
+            double y1 = a.y() * (double) gridSizePx;
+            double x2 = b.x() * (double) gridSizePx;
+            double y2 = b.y() * (double) gridSizePx;
+            double segLen = Math.hypot(x2 - x1, y2 - y1);
+            if (segLen < 1.0) continue;
+
+            double ux = (x2 - x1) / segLen;
+            double uy = (y2 - y1) / segLen;
+            double nx = -uy;
+            double ny = ux;
+
+            double travel = ((-phasePx) % spacing + spacing) % spacing;
+            for (double d = travel; d < segLen; d += spacing) {
+                // Slight alternating lateral offset so bubbles look natural inside the pipe
+                int idx = (int) Math.floor((accumulatedLen + d) / spacing);
+                double lat = ((idx & 1) == 0 ? 1.0 : -1.0) * Math.max(0.8, coreWidth * 0.14);
+                double bx = x1 + ux * d + nx * lat;
+                double by = y1 + uy * d + ny * lat;
+                double r = ((idx % 3) == 0) ? bubbleR * 1.15 : bubbleR * 0.85;
+
+                Shape bubble = new Ellipse2D.Double(bx - r, by - r, r * 2.0, r * 2.0);
+                g.setColor(softBubble);
+                g.fill(bubble);
+                g.setColor(specWhite);
+                g.fill(new Ellipse2D.Double(bx - r * 0.45, by - r * 0.45, r * 0.7, r * 0.7));
+            }
+            accumulatedLen += segLen;
+        }
     }
 
     private static void paintHorizontalWall(Graphics2D g, double x, double y, double w, double h) {
@@ -201,7 +237,6 @@ public final class PipeRenderer {
         g.setStroke(OUTLINE_STROKE);
         g.draw(joint);
 
-        // Inner hub dot
         double inner = Math.max(3.0, diameterPx * 0.45);
         g.setColor(ScadaPalette.BEVEL_HIGHLIGHT_SOFT);
         g.draw(new Ellipse2D.Double(cx - inner / 2.0, cy - inner / 2.0, inner, inner));

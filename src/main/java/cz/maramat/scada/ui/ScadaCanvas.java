@@ -38,18 +38,24 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.dnd.DnDConstants;
+import java.awt.dnd.DropTarget;
+import java.awt.dnd.DropTargetAdapter;
+import java.awt.dnd.DropTargetDropEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Interactive SCADA Designer & Operator canvas with strict integer grid, discrete zoom (50%..300%),
@@ -60,6 +66,12 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     public enum ToolMode {
         CURSOR,
         PIPE
+    }
+
+    public enum SimState {
+        STOPPED,
+        RUNNING,
+        PAUSED
     }
 
     public static final int[] ZOOM_PERCENTS = {50, 70, 80, 100, 120, 150, 200, 300};
@@ -75,9 +87,15 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     private SymbolRenderer symbolRenderer = defaultSymbolRenderer();
 
     private ToolMode toolMode = ToolMode.CURSOR;
+    private SimState simState = SimState.STOPPED;
     private boolean operatorMode = false;
     private boolean showFlowAnimation = true;
     private int zoomIndex = 3; // 100% -> 10px
+    private Runnable onStepCallback;
+
+    private static final List<ScadaSymbolInstance> clipboardSymbols = new ArrayList<>();
+    private static final List<ScadaPipe> clipboardPipes = new ArrayList<>();
+    private static int pasteCascadeCount = 0;
 
     private final Set<String> selectedSymbolIds = new HashSet<>();
     private final Set<String> selectedPipeIds = new HashSet<>();
@@ -115,6 +133,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     // 60 FPS animation loop
     private final Timer animTimer;
     private double flowDashPhasePx = 0.0;
+    private long simTimeMs = 0L;
     private long lastTickNs = System.nanoTime();
 
     public record PortHit(ScadaSymbolInstance symbol, PipePort port, PipePort.WorldPort worldPort) {
@@ -128,13 +147,15 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         updatePreferredSize();
         installMouseHandlers();
         installKeyBindings();
+        setupDropTarget();
 
         this.animTimer = new Timer(16, e -> {
             long now = System.nanoTime();
             double dt = Math.min(0.1, (now - lastTickNs) / 1_000_000_000.0);
             lastTickNs = now;
-            if (showFlowAnimation) {
+            if (simState == SimState.RUNNING && showFlowAnimation) {
                 flowDashPhasePx -= dt * 36.0;
+                simTimeMs += Math.round(dt * 1000.0);
                 repaint();
             }
         });
@@ -226,6 +247,38 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         repaint();
     }
 
+    public SimState getSimState() {
+        return simState;
+    }
+
+    public void setSimState(SimState simState) {
+        this.simState = (simState == null) ? SimState.STOPPED : simState;
+        if (this.simState == SimState.STOPPED) {
+            flowDashPhasePx = 0.0;
+            simTimeMs = 0L;
+        }
+        repaint();
+    }
+
+    public void setOnStepCallback(Runnable onStepCallback) {
+        this.onStepCallback = onStepCallback;
+    }
+
+    /**
+     * Advances simulation by a single discrete step (useful when stopped/paused in editor mode).
+     */
+    public void stepSimulation() {
+        if (simState == SimState.STOPPED) {
+            simState = SimState.PAUSED;
+        }
+        flowDashPhasePx -= 6.0;
+        simTimeMs += 100L;
+        if (onStepCallback != null) {
+            onStepCallback.run();
+        }
+        repaint();
+    }
+
     public int getZoomPercent() {
         return ZOOM_PERCENTS[zoomIndex];
     }
@@ -286,6 +339,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 sym.setRotationDeg((sym.getRotationDeg() + 90) % 360);
             }
         }
+        reroutePipesForSymbols(selectedSymbolIds);
         markDirty();
         repaint();
     }
@@ -298,6 +352,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 sym.setFlipH(!sym.isFlipH());
             }
         }
+        reroutePipesForSymbols(selectedSymbolIds);
         markDirty();
         repaint();
     }
@@ -310,6 +365,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 sym.setFlipV(!sym.isFlipV());
             }
         }
+        reroutePipesForSymbols(selectedSymbolIds);
         markDirty();
         repaint();
     }
@@ -383,19 +439,20 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             if (screen == null) return;
 
             Map<String, FlowState> flowMap = FlowPropagationSolver.solve(screen, project, tagProvider);
-            long nowMs = System.currentTimeMillis();
+            boolean simActive = (simState != SimState.STOPPED) && showFlowAnimation;
+            long renderTimeMs = (simState == SimState.STOPPED) ? 0L : simTimeMs;
 
             // 1. Pipes (rendered under equipment housings)
             for (ScadaPipe pipe : screen.getPipes()) {
                 FlowState fs = flowMap.getOrDefault(pipe.getId(), FlowState.IDLE);
-                PipeRenderer.paintPipe(g, pipe, gPx, fs, showFlowAnimation, flowDashPhasePx, selectedPipeIds.contains(pipe.getId()));
+                PipeRenderer.paintPipe(g, pipe, gPx, fs, simActive, flowDashPhasePx, selectedPipeIds.contains(pipe.getId()));
             }
 
             // 2. Symbols sorted by zIndex
             List<ScadaSymbolInstance> ordered = new ArrayList<>(screen.getSymbols());
             ordered.sort(Comparator.comparingInt(ScadaSymbolInstance::getZIndex));
             for (ScadaSymbolInstance sym : ordered) {
-                symbolRenderer.paintSymbol(g, sym, gPx, project, tagProvider, layerCache, nowMs, operatorMode);
+                symbolRenderer.paintSymbol(g, sym, gPx, project, tagProvider, layerCache, renderTimeMs, operatorMode);
                 if (!operatorMode && selectedSymbolIds.contains(sym.getId())) {
                     paintSymbolSelectionBox(g, sym, gPx);
                 }
@@ -639,6 +696,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                                 sym.setGridY(sym.getGridY() + dy);
                             }
                         }
+                        translateOrReroutePipes(selectedSymbolIds, dx, dy);
                         dragStartGridX = igx;
                         dragStartGridY = igy;
                         markDirty();
@@ -733,19 +791,25 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 draggingSymbols = false;
 
                 if (marqueeActive && marqueeStartPx != null && marqueeEndPx != null) {
-                    Rectangle rect = new Rectangle(
-                            Math.min(marqueeStartPx.x, marqueeEndPx.x),
-                            Math.min(marqueeStartPx.y, marqueeEndPx.y),
-                            Math.abs(marqueeEndPx.x - marqueeStartPx.x),
-                            Math.abs(marqueeEndPx.y - marqueeStartPx.y)
-                    );
-                    for (ScadaSymbolInstance sym : screen.getSymbols()) {
-                        Rectangle symRect = new Rectangle(
-                                sym.getGridX() * gPx, sym.getGridY() * gPx,
-                                sym.getEffectiveGridW() * gPx, sym.getEffectiveGridH() * gPx
+                    int mw = Math.abs(marqueeEndPx.x - marqueeStartPx.x);
+                    int mh = Math.abs(marqueeEndPx.y - marqueeStartPx.y);
+                    if (mw < 4 && mh < 4) {
+                        // Single click on editor viewport simulates/runs one step
+                        stepSimulation();
+                    } else {
+                        Rectangle rect = new Rectangle(
+                                Math.min(marqueeStartPx.x, marqueeEndPx.x),
+                                Math.min(marqueeStartPx.y, marqueeEndPx.y),
+                                mw, mh
                         );
-                        if (rect.intersects(symRect)) {
-                            selectedSymbolIds.add(sym.getId());
+                        for (ScadaSymbolInstance sym : screen.getSymbols()) {
+                            Rectangle symRect = new Rectangle(
+                                    sym.getGridX() * gPx, sym.getGridY() * gPx,
+                                    sym.getEffectiveGridW() * gPx, sym.getEffectiveGridH() * gPx
+                            );
+                            if (rect.intersects(symRect)) {
+                                selectedSymbolIds.add(sym.getId());
+                            }
                         }
                     }
                     marqueeActive = false;
@@ -920,6 +984,168 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 }
             }
         });
+
+        getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_C, menuMask), "copySelection");
+        getActionMap().put("copySelection", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                copySelection();
+            }
+        });
+
+        getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_V, menuMask), "pasteSelection");
+        getActionMap().put("pasteSelection", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                pasteFromClipboard();
+            }
+        });
+    }
+
+    public void copySelection() {
+        if (operatorMode || screen == null || selectedSymbolIds.isEmpty()) return;
+        clipboardSymbols.clear();
+        clipboardPipes.clear();
+        pasteCascadeCount = 0;
+
+        for (ScadaSymbolInstance sym : screen.getSymbols()) {
+            if (selectedSymbolIds.contains(sym.getId())) {
+                clipboardSymbols.add(sym.copy());
+            }
+        }
+        for (ScadaPipe pipe : screen.getPipes()) {
+            if (pipe.getSourceSymbolId() != null && pipe.getTargetSymbolId() != null
+                    && selectedSymbolIds.contains(pipe.getSourceSymbolId())
+                    && selectedSymbolIds.contains(pipe.getTargetSymbolId())) {
+                clipboardPipes.add(pipe.copy());
+            }
+        }
+    }
+
+    public void pasteFromClipboard() {
+        if (operatorMode || screen == null || clipboardSymbols.isEmpty()) return;
+        undoManager.recordSnapshot("Paste Selection", screen);
+        pasteCascadeCount++;
+        int offset = pasteCascadeCount * 2;
+
+        Map<String, String> idMap = new HashMap<>();
+        selectedSymbolIds.clear();
+        selectedPipeIds.clear();
+
+        for (ScadaSymbolInstance src : clipboardSymbols) {
+            ScadaSymbolInstance copy = src.copy();
+            String newId = UUID.randomUUID().toString();
+            idMap.put(src.getId(), newId);
+            copy.setId(newId);
+            copy.setName(src.getName() + "_copy");
+            copy.setGridX(src.getGridX() + offset);
+            copy.setGridY(src.getGridY() + offset);
+            screen.getSymbols().add(copy);
+            selectedSymbolIds.add(newId);
+        }
+
+        for (ScadaPipe srcPipe : clipboardPipes) {
+            String newSrc = idMap.get(srcPipe.getSourceSymbolId());
+            String newDst = idMap.get(srcPipe.getTargetSymbolId());
+            if (newSrc != null && newDst != null) {
+                ScadaPipe pCopy = srcPipe.copy();
+                pCopy.setId(UUID.randomUUID().toString());
+                pCopy.setSourceSymbolId(newSrc);
+                pCopy.setTargetSymbolId(newDst);
+                List<GridPoint> shifted = new ArrayList<>(pCopy.getVertices().size());
+                for (GridPoint gp : pCopy.getVertices()) {
+                    shifted.add(new GridPoint(gp.x() + offset, gp.y() + offset));
+                }
+                pCopy.setVertices(shifted);
+                screen.getPipes().add(pCopy);
+                selectedPipeIds.add(pCopy.getId());
+            }
+        }
+        markDirty();
+        repaint();
+    }
+
+    private void translateOrReroutePipes(Set<String> movedSymbolIds, int dx, int dy) {
+        if (screen == null || (dx == 0 && dy == 0)) return;
+        for (ScadaPipe pipe : screen.getPipes()) {
+            boolean srcMoved = pipe.getSourceSymbolId() != null && movedSymbolIds.contains(pipe.getSourceSymbolId());
+            boolean dstMoved = pipe.getTargetSymbolId() != null && movedSymbolIds.contains(pipe.getTargetSymbolId());
+            if (!srcMoved && !dstMoved) continue;
+
+            if (srcMoved && dstMoved) {
+                List<GridPoint> shifted = new ArrayList<>(pipe.getVertices().size());
+                for (GridPoint gp : pipe.getVertices()) {
+                    shifted.add(new GridPoint(gp.x() + dx, gp.y() + dy));
+                }
+                pipe.setVertices(shifted);
+            } else {
+                rerouteSinglePipe(pipe);
+            }
+        }
+    }
+
+    private void reroutePipesForSymbols(Set<String> symbolIds) {
+        if (screen == null) return;
+        for (ScadaPipe pipe : screen.getPipes()) {
+            boolean srcHit = pipe.getSourceSymbolId() != null && symbolIds.contains(pipe.getSourceSymbolId());
+            boolean dstHit = pipe.getTargetSymbolId() != null && symbolIds.contains(pipe.getTargetSymbolId());
+            if (srcHit || dstHit) {
+                rerouteSinglePipe(pipe);
+            }
+        }
+    }
+
+    private void rerouteSinglePipe(ScadaPipe pipe) {
+        ScadaSymbolInstance srcSym = screen.findSymbolById(pipe.getSourceSymbolId());
+        ScadaSymbolInstance dstSym = screen.findSymbolById(pipe.getTargetSymbolId());
+        if (srcSym != null && dstSym != null) {
+            PipePort.WorldPort wp1 = srcSym.resolveWorldPort(pipe.getSourcePortId());
+            PipePort.WorldPort wp2 = dstSym.resolveWorldPort(pipe.getTargetPortId());
+            if (wp1 != null && wp2 != null) {
+                pipe.setVertices(PipeRouter.route(wp1, wp2));
+            }
+        }
+    }
+
+    private void setupDropTarget() {
+        new DropTarget(this, DnDConstants.ACTION_COPY, new DropTargetAdapter() {
+            @Override
+            public void drop(DropTargetDropEvent dtde) {
+                if (operatorMode || screen == null) {
+                    dtde.rejectDrop();
+                    return;
+                }
+                try {
+                    if (!dtde.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+                        dtde.rejectDrop();
+                        return;
+                    }
+                    dtde.acceptDrop(DnDConstants.ACTION_COPY);
+                    String symbolType = (String) dtde.getTransferable().getTransferData(DataFlavor.stringFlavor);
+                    if (symbolType == null || symbolType.isBlank()) {
+                        dtde.dropComplete(false);
+                        return;
+                    }
+                    int gPx = getGridSizePx();
+                    int gx = Math.max(0, Math.round(dtde.getLocation().x / (float) gPx));
+                    int gy = Math.max(0, Math.round(dtde.getLocation().y / (float) gPx));
+
+                    undoManager.recordSnapshot("Drop " + symbolType, screen);
+                    int idx = screen.getSymbols().size() + 1;
+                    ScadaSymbolInstance sym = SymbolCatalogTree.createDefaultInstance(symbolType, symbolType + "-" + idx, gx, gy);
+                    screen.getSymbols().add(sym);
+                    selectedSymbolIds.clear();
+                    selectedPipeIds.clear();
+                    selectedSymbolIds.add(sym.getId());
+                    markDirty();
+                    requestFocusInWindow();
+                    repaint();
+                    dtde.dropComplete(true);
+                } catch (Exception ex) {
+                    dtde.dropComplete(false);
+                }
+            }
+        }, true);
     }
 
     private PortHit hitTestPort(double gx, double gy, double toleranceGrid) {

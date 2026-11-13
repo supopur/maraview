@@ -6,6 +6,7 @@ package cz.maramat.scada.render;
 public enum EquipmentState {
     STOPPED,
     RUNNING,
+    STANDBY,
     WARNING,
     FAULT;
 

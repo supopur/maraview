@@ -55,7 +55,11 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         double posPct = readBoundValue(sym, project, tagProvider, "PositionTag",
                 readBoundValue(sym, project, tagProvider, "SetpointTag", 50.0));
         boolean open = isValveOpen(sym, project, tagProvider);
-        FluidType fluid = parseFluid(sym.getProperties().get("FluidType"));
+        String fluidRaw = sym.getProperties().get("FluidType");
+        if (fluidRaw == null || fluidRaw.isBlank()) {
+            fluidRaw = sym.getProperties().get("fluidType");
+        }
+        FluidType fluid = parseFluid(fluidRaw);
 
         Graphics2D lg = (Graphics2D) g.create();
         try {
@@ -119,8 +123,11 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
             lg.dispose();
         }
 
-        // State overlay (warning / 2 Hz fault halo) in world space
+        // State overlay (standby / warning / 2 Hz fault halo) in world space
         ScadaShader.paintStateOverlay(g, x, y, effW, effH, state, animationTimeMs);
+
+        // Optional Local/Remote, Hand/Off/Auto, and Standby mode badges
+        paintControlModeBadges(g, sym, project, tagProvider, state, x, y, effW, gPx);
 
         // Crisp equipment tag label below symbol
         if (!sym.getName().isBlank()) {
@@ -144,7 +151,91 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                 || readBoundValue(sym, project, tags, "SpeedTag", 0.0) > 0.0) {
             return EquipmentState.RUNNING;
         }
+        if (readBoundValue(sym, project, tags, "StandbyTag", 0.0) != 0.0) {
+            return EquipmentState.STANDBY;
+        }
+        String propState = sym.getProperty("State", "");
+        if ("STANDBY".equalsIgnoreCase(propState)) {
+            return EquipmentState.STANDBY;
+        }
         return EquipmentState.STOPPED;
+    }
+
+    private static void paintControlModeBadges(Graphics2D g, ScadaSymbolInstance sym,
+                                               ScadaProject project, RuntimeTagProvider tags,
+                                               EquipmentState state, int x, int y, int effW, int gPx) {
+        String lr = resolveLocalRemote(sym, project, tags);
+        String hoa = resolveHoa(sym, project, tags);
+        boolean stby = state == EquipmentState.STANDBY;
+        if (lr == null && hoa == null && !stby) {
+            return;
+        }
+        Font oldFont = g.getFont();
+        Color oldColor = g.getColor();
+        int badgeH = Math.max(11, gPx + 2);
+        int fontSize = Math.max(8, gPx - 1);
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, fontSize));
+
+        int bx = x + effW;
+        int by = y - badgeH - 1;
+        if (hoa != null) {
+            Color bg = switch (hoa) {
+                case "H" -> new Color(0xE6, 0x51, 0x00);
+                case "O" -> new Color(0x54, 0x6E, 0x7A);
+                default -> new Color(0x1E, 0x84, 0x49);
+            };
+            bx -= drawMiniBadge(g, hoa, bx, by, badgeH, bg) + 2;
+        }
+        if (lr != null) {
+            Color bg = "L".equals(lr) ? new Color(0x8E, 0x24, 0xAA) : new Color(0x02, 0x77, 0xBD);
+            bx -= drawMiniBadge(g, lr, bx, by, badgeH, bg) + 2;
+        }
+        if (stby) {
+            int stbyW = Math.max(badgeH, g.getFontMetrics().stringWidth("STBY") + 6);
+            drawMiniBadge(g, "STBY", x + stbyW, by, badgeH, cz.maramat.scada.render.ScadaPalette.STATE_STANDBY);
+        }
+        g.setFont(oldFont);
+        g.setColor(oldColor);
+    }
+
+    private static int drawMiniBadge(Graphics2D g, String text, int rightX, int y, int h, Color bg) {
+        int tw = g.getFontMetrics().stringWidth(text);
+        int w = Math.max(h, tw + 6);
+        int x = rightX - w;
+        g.setColor(bg);
+        g.fillRoundRect(x, y, w, h, 4, 4);
+        g.setColor(Color.WHITE);
+        int ty = y + ((h + g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent()) / 2);
+        g.drawString(text, x + (w - tw) / 2, ty);
+        return w;
+    }
+
+    private static String resolveLocalRemote(ScadaSymbolInstance sym, ScadaProject project, RuntimeTagProvider tags) {
+        String tag = sym.getTagBindings().get("LocalRemoteTag");
+        if (tag != null && !tag.isBlank() && project != null && project.getTag(tag) != null && tags != null) {
+            return tags.readTag(project, tag) > 0.0 ? "R" : "L";
+        }
+        String prop = sym.getProperty("ControlMode", "");
+        if ("LOCAL".equalsIgnoreCase(prop) || "L".equalsIgnoreCase(prop)) return "L";
+        if ("REMOTE".equalsIgnoreCase(prop) || "R".equalsIgnoreCase(prop)) return "R";
+        return null;
+    }
+
+    private static String resolveHoa(ScadaSymbolInstance sym, ScadaProject project, RuntimeTagProvider tags) {
+        String tag = sym.getTagBindings().get("HoaTag");
+        if (tag != null && !tag.isBlank() && project != null && project.getTag(tag) != null && tags != null) {
+            int val = (int) Math.round(tags.readTag(project, tag));
+            return switch (val) {
+                case 1 -> "H";
+                case 2 -> "A";
+                default -> "O";
+            };
+        }
+        String prop = sym.getProperty("HoaMode", "");
+        if ("HAND".equalsIgnoreCase(prop) || "H".equalsIgnoreCase(prop)) return "H";
+        if ("OFF".equalsIgnoreCase(prop) || "O".equalsIgnoreCase(prop)) return "O";
+        if ("AUTO".equalsIgnoreCase(prop) || "A".equalsIgnoreCase(prop)) return "A";
+        return null;
     }
 
     public static double readBoundValue(ScadaSymbolInstance sym, ScadaProject project,
@@ -158,9 +249,12 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
     }
 
     private static boolean isValveOpen(ScadaSymbolInstance sym, ScadaProject project, RuntimeTagProvider tags) {
-        String openTag = sym.getTagBindings().getOrDefault("OpenTag", sym.getTagBindings().get("RunTag"));
+        String openTag = sym.getTagBindings().get("OpenTag");
+        if (openTag == null || openTag.isBlank()) {
+            openTag = sym.getTagBindings().get("RunTag");
+        }
         if (openTag != null && !openTag.isBlank() && project != null && project.getTag(openTag) != null && tags != null) {
-            return tags.readTag(project, openTag) != 0.0;
+            return tags.readTag(project, openTag) > 0.0;
         }
         return Boolean.parseBoolean(sym.getProperties().getOrDefault("Open", "true"));
     }

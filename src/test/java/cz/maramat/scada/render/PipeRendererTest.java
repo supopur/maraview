@@ -75,4 +75,23 @@ class PipeRendererTest {
         assertTrue((stoppedB - stoppedR) < 35, "Stopped pipe should be metallic grey without blue water infill");
         assertTrue((runningB - runningR) > 100, "Running water pipe should have blue water infill");
     }
+
+    @Test
+    void rendersPneumaticAndCapillaryLineStyles() {
+        for (cz.maramat.scada.model.ConnectionType ct : List.of(
+                cz.maramat.scada.model.ConnectionType.PNEUMATIC,
+                cz.maramat.scada.model.ConnectionType.CAPILLARY)) {
+            ScadaPipe line = new ScadaPipe("line-" + ct.name());
+            line.setConnectionType(ct);
+            line.setVertices(List.of(new GridPoint(1, 3), new GridPoint(10, 3)));
+            BufferedImage img = new BufferedImage(120, 60, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                PipeRenderer.paintPipe(g, line, 10, new FlowState(true, 1.0, FluidType.GAS), true, 3.0, false);
+            } finally {
+                g.dispose();
+            }
+            assertTrue((img.getRGB(50, 30) >>> 24) > 0, "Expected opaque pixels for " + ct);
+        }
+    }
 }

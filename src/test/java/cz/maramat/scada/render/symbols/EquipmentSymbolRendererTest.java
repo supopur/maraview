@@ -55,4 +55,32 @@ class EquipmentSymbolRendererTest {
 
         assertTrue(cache.backgroundSize() >= 4, "Expected static shells cached in SymbolLayerCache");
     }
+
+    @Test
+    void resolvesStandbyAndRendersLocalRemoteHoaBadges() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag stby = new ScadaTag("PumpStby", DataType.BOOL, TagSourceType.INTERNAL);
+        stby.setInitialValue("1");
+        stby.resetRuntimeToInitial();
+        project.putTag(stby);
+
+        InternalTagProvider tags = new InternalTagProvider();
+        ScadaSymbolInstance sym = new ScadaSymbolInstance("CentrifugalPump", "P-101", 2, 3, 8, 10);
+        sym.getTagBindings().put("StandbyTag", "PumpStby");
+        sym.setProperty("ControlMode", "REMOTE");
+        sym.setProperty("HoaMode", "AUTO");
+
+        org.junit.jupiter.api.Assertions.assertEquals(
+                cz.maramat.scada.render.EquipmentState.STANDBY,
+                EquipmentSymbolRenderer.resolveState(sym, project, tags));
+
+        BufferedImage img = new BufferedImage(140, 160, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        try {
+            new EquipmentSymbolRenderer().paintSymbol(g, sym, 10, project, tags, new SymbolLayerCache(), 500L, false);
+        } finally {
+            g.dispose();
+        }
+        assertTrue((img.getRGB(60, 80) >>> 24) > 0);
+    }
 }

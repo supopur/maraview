@@ -6,9 +6,11 @@ package cz.maramat.scada.model;
  * and MaR control signals to signal terminals.
  */
 public enum ConnectionType {
-    PIPE("Fluid Pipe"),
+    PIPE("Fluid Process Pipe"),
     ELECTRICAL_POWER("Electrical Power (230V / 400V / 24V)"),
-    CONTROL_SIGNAL("MaR Control Signal (0-10V / 4-20mA / DI-DO)");
+    CONTROL_SIGNAL("MaR Control Signal (0-10V / 4-20mA / DI-DO)"),
+    PNEUMATIC("Pneumatic Air Line"),
+    CAPILLARY("Capillary Tube");
 
     private final String displayName;
 

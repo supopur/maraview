@@ -46,7 +46,7 @@ public final class ScadaShader {
                 new Point2D.Double(x, y),
                 new Point2D.Double(x, endY),
                 ScadaPalette.STANDARD_FRACTIONS,
-                material.getStops()
+                material.stopsRaw()
         ));
         g.fill(rect);
 
@@ -79,7 +79,7 @@ public final class ScadaShader {
                 new Point2D.Double(x, y),
                 new Point2D.Double(endX, y),
                 ScadaPalette.STANDARD_FRACTIONS,
-                material.getStops()
+                material.stopsRaw()
         ));
         g.fill(rect);
 
@@ -115,7 +115,7 @@ public final class ScadaShader {
                 new Point2D.Double(x, y),
                 new Point2D.Double(x + Math.max(1.0, w), y),
                 ScadaPalette.STANDARD_FRACTIONS,
-                material.getStops()
+                material.stopsRaw()
         ));
         g.fill(dome);
 
@@ -159,7 +159,7 @@ public final class ScadaShader {
                 ? new Point2D.Double(fx + Math.max(1.0, fw), fy)
                 : new Point2D.Double(fx, fy + Math.max(1.0, fh));
 
-        g.setPaint(new LinearGradientPaint(p1, p2, ScadaPalette.STANDARD_FRACTIONS, Material.FLANGE_STEEL.getStops()));
+        g.setPaint(new LinearGradientPaint(p1, p2, ScadaPalette.STANDARD_FRACTIONS, Material.FLANGE_STEEL.stopsRaw()));
         g.fill(collar);
 
         // Bolt heads near ends of flange
@@ -189,7 +189,10 @@ public final class ScadaShader {
      */
     public static void paintPortNozzle(Graphics2D g, double px, double py, CardinalDirection outDir,
                                        int gPx, ConnectionType connType) {
-        if (connType == ConnectionType.ELECTRICAL_POWER || connType == ConnectionType.CONTROL_SIGNAL) {
+        if (connType == ConnectionType.ELECTRICAL_POWER
+                || connType == ConnectionType.CONTROL_SIGNAL
+                || connType == ConnectionType.PNEUMATIC
+                || connType == ConnectionType.CAPILLARY) {
             double pinLen = Math.max(4.0, gPx * 0.45);
             double pinThick = Math.max(2.5, gPx * 0.28);
             double x = switch (outDir) {
@@ -204,9 +207,13 @@ public final class ScadaShader {
             };
             double w = (outDir == CardinalDirection.WEST || outDir == CardinalDirection.EAST) ? pinLen : pinThick;
             double h = (outDir == CardinalDirection.NORTH || outDir == CardinalDirection.SOUTH) ? pinLen : pinThick;
-            Color pinColor = (connType == ConnectionType.ELECTRICAL_POWER)
-                    ? new Color(210, 150, 50)
-                    : new Color(80, 165, 220);
+            Color pinColor = switch (connType) {
+                case ELECTRICAL_POWER -> new Color(210, 150, 50);
+                case CONTROL_SIGNAL -> new Color(80, 165, 220);
+                case PNEUMATIC -> new Color(41, 182, 246);
+                case CAPILLARY -> new Color(171, 71, 188);
+                default -> new Color(80, 165, 220);
+            };
             Paint oldP = g.getPaint();
             g.setColor(pinColor);
             g.fill(new Rectangle2D.Double(x, y, w, h));
@@ -256,7 +263,7 @@ public final class ScadaShader {
                 new Point2D.Double(x, y),
                 new Point2D.Double(x, y + Math.max(1.0, h)),
                 ScadaPalette.STANDARD_FRACTIONS,
-                material.getStops()
+                material.stopsRaw()
         ));
         g.fill(body);
 
@@ -288,7 +295,7 @@ public final class ScadaShader {
         Ellipse2D.Double outer = new Ellipse2D.Double(
                 cx - outerRadius, cy - outerRadius, outerRadius * 2.0, outerRadius * 2.0
         );
-        Color[] stops = material.getStops();
+        Color[] stops = material.stopsRaw();
         g.setPaint(new RadialGradientPaint(
                 new Point2D.Double(cx - outerRadius * 0.25, cy - outerRadius * 0.25),
                 (float) Math.max(2.0, outerRadius * 1.15),
@@ -380,7 +387,7 @@ public final class ScadaShader {
                 new Point2D.Double(cx - hubR * 0.3, cy - hubR * 0.3),
                 (float) Math.max(1.5, hubR * 1.2),
                 ScadaPalette.STANDARD_FRACTIONS,
-                Material.STAINLESS_STEEL.getStops()
+                Material.STAINLESS_STEEL.stopsRaw()
         ));
         g.fill(hub);
         g.setColor(ScadaPalette.OUTLINE_DARK);
@@ -437,7 +444,12 @@ public final class ScadaShader {
         Stroke oldStroke = g.getStroke();
         Color oldColor = g.getColor();
 
-        if (state == EquipmentState.WARNING) {
+        if (state == EquipmentState.STANDBY) {
+            g.setColor(ScadaPalette.STATE_STANDBY);
+            g.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                    1.0f, new float[]{5.0f, 3.0f}, 0.0f));
+            g.draw(new Rectangle2D.Double(x - 1.0, y - 1.0, w + 2.0, h + 2.0));
+        } else if (state == EquipmentState.WARNING) {
             g.setColor(ScadaPalette.STATE_WARNING);
             g.setStroke(STROKE_2PX);
             g.draw(new Rectangle2D.Double(x - 1.0, y - 1.0, w + 2.0, h + 2.0));

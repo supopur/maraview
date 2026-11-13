@@ -293,6 +293,16 @@ public final class SymbolCatalog {
                 new PortSpec("outlet", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("pwr", "Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
         ));
+        register("AxialFan", "Pumps & Fans", EquipmentDomain.HEATING_HVAC, 6, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Air In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("CentrifugalFan", "Pumps & Fans", EquipmentDomain.HEATING_HVAC, 7, 7, 5, 5, true, List.of(
+                new PortSpec("inlet", "Air In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Air Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER)
+        ));
 
         // 3. Heating, Boilers & HVAC
         register("Boiler", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 10, 12, 7, 8, true, List.of(
@@ -446,6 +456,64 @@ public final class SymbolCatalog {
                 new PortSpec("air_out", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("water", "Water In", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
                 new PortSpec("ctrl", "0-10V Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ScrewCompressor", "Refrigeration", EquipmentDomain.HEATING_HVAC, 8, 6, 6, 5, true, List.of(
+                new PortSpec("suction", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("discharge", "Discharge", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("ScrollCompressor", "Refrigeration", EquipmentDomain.HEATING_HVAC, 6, 8, 5, 6, true, List.of(
+                new PortSpec("suction", "Suction", 0.0, 0.7, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("discharge", "Discharge", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("PistonCompressor", "Refrigeration", EquipmentDomain.HEATING_HVAC, 7, 7, 5, 5, true, List.of(
+                new PortSpec("suction", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("discharge", "Discharge", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("CentrifugalCompressor", "Refrigeration", EquipmentDomain.HEATING_HVAC, 8, 8, 6, 6, true, List.of(
+                new PortSpec("suction", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("discharge", "Discharge", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Power", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("ExpansionValve", "Refrigeration", EquipmentDomain.HEATING_HVAC, 5, 5, 4, 4, false, List.of(
+                new PortSpec("inlet", "Liquid In", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Flash Out", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("bulb", "Capillary / EEV", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CAPILLARY)
+        ));
+        register("RefrigerantReceiver", "Refrigeration", EquipmentDomain.HEATING_HVAC, 8, 10, 6, 7, true, List.of(
+                new PortSpec("inlet", "Liquid In", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Liquid Out", 1.0, 0.8, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("ThermalStorageTank", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 8, 14, 6, 9, true, List.of(
+                new PortSpec("top_in", "Charge Top", 0.0, 0.2, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("top_out", "Supply Out", 1.0, 0.2, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("bot_in", "Return In", 1.0, 0.8, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("bot_out", "Cold Bottom", 0.0, 0.8, CardinalDirection.WEST, ConnectionType.PIPE)
+        ));
+        register("SolarThermalCollector", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 12, 8, 8, 6, true, List.of(
+                new PortSpec("cold_in", "Return In", 0.0, 0.8, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("hot_out", "Solar Out", 1.0, 0.2, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("t_col", "Collector T", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("UnderfloorHeatingZone", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 10, 8, 7, 5, true, List.of(
+                new PortSpec("supply", "Supply In", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("return", "Return Out", 0.0, 0.7, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("t_room", "Room Sensor", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ZoneValve", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 5, 5, 4, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("cmd", "24V/230V", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("VavBox", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 9, 6, 6, 4, true, List.of(
+                new PortSpec("inlet", "Primary Air", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Zone Air", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("ctrl", "VAV Bus", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("RoomSymbol", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 9, 7, 6, 5, true, List.of(
+                new PortSpec("ctrl", "Room Bus", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL)
         ));
 
         // 4. Electrical Elements

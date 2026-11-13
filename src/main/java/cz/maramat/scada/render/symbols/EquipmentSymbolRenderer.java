@@ -99,10 +99,11 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
             String type = sym.getSymbolType();
             double phase = animationTimeMs / 60.0;
             double numVal = readBoundValue(sym, project, tagProvider, "ValueTag",
-                    readBoundValue(sym, project, tagProvider, "SetpointTag", 0.0));
+                    readBoundValue(sym, project, tagProvider, "TempTag",
+                            readBoundValue(sym, project, tagProvider, "SetpointTag", 21.5)));
             if (ElectricalSymbolRenderer.paint(lg, sym, localW, localH, state, phase)) {
                 // Rendered by ElectricalSymbolRenderer
-            } else if (HvacHeatingRenderer.paint(lg, sym, localW, localH, state, phase)) {
+            } else if (HvacHeatingRenderer.paint(lg, sym, localW, localH, state, phase, speedPct, posPct, numVal)) {
                 // Rendered by HvacHeatingRenderer
             } else if (WastewaterRenderer.paint(lg, sym, localW, localH, state, phase)) {
                 // Rendered by WastewaterRenderer

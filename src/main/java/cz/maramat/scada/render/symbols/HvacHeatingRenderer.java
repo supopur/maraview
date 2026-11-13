@@ -32,6 +32,12 @@ public final class HvacHeatingRenderer {
 
     public static boolean paint(Graphics2D g, ScadaSymbolInstance sym,
                                 double w, double h, EquipmentState state, double phase) {
+        return paint(g, sym, w, h, state, phase, state == EquipmentState.RUNNING ? 100.0 : 0.0, 50.0, 21.5);
+    }
+
+    public static boolean paint(Graphics2D g, ScadaSymbolInstance sym,
+                                double w, double h, EquipmentState state, double phase,
+                                double speedPct, double posPct, double numVal) {
         return switch (sym.getSymbolType()) {
             case "Boiler" -> { paintBoiler(g, sym, w, h, state, phase, "BOILER"); yield true; }
             case "GasBoiler" -> { paintBoiler(g, sym, w, h, state, phase, "GAS"); yield true; }
@@ -50,21 +56,35 @@ public final class HvacHeatingRenderer {
             case "DryCooler" -> { paintDryCooler(g, w, h, state, phase); yield true; }
             case "FanCoilUnit" -> { paintFanCoilUnit(g, w, h, state, phase); yield true; }
             case "BufferTank" -> { paintBufferTank(g, w, h, state); yield true; }
+            case "ThermalStorageTank" -> { paintBufferTank(g, w, h, state); yield true; }
             case "ExpansionVessel" -> { paintExpansionVessel(g, w, h); yield true; }
-            case "Radiator" -> { paintRadiator(g, w, h, state); yield true; }
+            case "Radiator" -> { paintRadiator(g, sym, w, h, state, numVal); yield true; }
             case "FloorHeatingManifold" -> { paintFloorHeatingManifold(g, w, h, state); yield true; }
+            case "UnderfloorHeatingZone" -> { paintUnderfloorZone(g, sym, w, h, state, numVal); yield true; }
+            case "ZoneValve" -> { paintTwoWayValve(g, w, h, state); yield true; }
+            case "VavBox" -> { paintVavBox(g, w, h, state, posPct); yield true; }
+            case "RoomSymbol" -> { paintRoomSymbol(g, sym, w, h, state, numVal); yield true; }
+            case "SolarThermalCollector" -> { paintSolarCollector(g, w, h, state); yield true; }
             case "ThreeWayMixingValve" -> { paintThreeWayValve(g, w, h, state); yield true; }
             case "TwoWayControlValve" -> { paintTwoWayValve(g, w, h, state); yield true; }
             case "SafetyReliefValve" -> { paintSafetyValve(g, w, h, state); yield true; }
             case "AirDirtSeparator" -> { paintAirDirtSeparator(g, w, h); yield true; }
             case "CirculationPump" -> { paintCirculationPump(g, w, h, state, phase); yield true; }
             case "VentilationFan" -> { paintVentilationFan(g, w, h, state, phase); yield true; }
+            case "AxialFan" -> { paintFanWithSpeed(g, w, h, state, phase, speedPct, true); yield true; }
+            case "CentrifugalFan" -> { paintFanWithSpeed(g, w, h, state, phase, speedPct, false); yield true; }
             case "AhuUnit" -> { paintAhuUnit(g, sym, w, h, state, phase); yield true; }
             case "HeatingCoil" -> { paintCoil(g, w, h, true, state); yield true; }
             case "CoolingCoil" -> { paintCoil(g, w, h, false, state); yield true; }
             case "HeatRecovery" -> { paintHeatRecovery(g, w, h, state); yield true; }
             case "AirFilter" -> { paintAirFilter(g, w, h); yield true; }
             case "Humidifier" -> { paintHumidifier(g, w, h, state); yield true; }
+            case "ScrewCompressor" -> { paintCompressor(g, w, h, state, phase, "SCR"); yield true; }
+            case "ScrollCompressor" -> { paintCompressor(g, w, h, state, phase, "SCL"); yield true; }
+            case "PistonCompressor" -> { paintCompressor(g, w, h, state, phase, "PST"); yield true; }
+            case "CentrifugalCompressor" -> { paintCompressor(g, w, h, state, phase, "CNT"); yield true; }
+            case "ExpansionValve" -> { paintExpansionValve(g, w, h, state); yield true; }
+            case "RefrigerantReceiver" -> { paintRefrigerantReceiver(g, w, h, state); yield true; }
             default -> false;
         };
     }
@@ -312,7 +332,8 @@ public final class HvacHeatingRenderer {
         g.draw(new Line2D.Double(6, h * 0.5, w - 6, h * 0.5));
     }
 
-    private static void paintRadiator(Graphics2D g, double w, double h, EquipmentState state) {
+    private static void paintRadiator(Graphics2D g, ScadaSymbolInstance sym, double w, double h,
+                                      EquipmentState state, double tempC) {
         ScadaShader.paintBeveledHousing(g, 2, 2, w - 4, h - 4, 4, Material.STAINLESS_STEEL);
         int fins = Math.max(4, (int) (w / 9));
         double step = (w - 10) / fins;
@@ -322,6 +343,10 @@ public final class HvacHeatingRenderer {
             double fx = 6 + i * step + step * 0.3;
             g.draw(new Line2D.Double(fx, 6, fx, h - 6));
         }
+        // Temperature display pill
+        g.setColor(new Color(0x14, 0x17, 0x1A, 200));
+        g.fill(new RoundRectangle2D.Double(w * 0.24, h * 0.28, w * 0.52, h * 0.44, 4, 4));
+        drawBadge(g, String.format("%.1f°C", tempC), w * 0.50, h * 0.58, Color.WHITE, 8);
     }
 
     private static void paintFloorHeatingManifold(Graphics2D g, double w, double h, EquipmentState state) {
@@ -453,16 +478,61 @@ public final class HvacHeatingRenderer {
         g.setColor(ScadaPalette.OUTLINE_DARK);
         g.setStroke(new BasicStroke(1.2f));
         g.draw(new Line2D.Double(4, h * 0.5, w - 4, h * 0.5));
-        // Heat recovery wheel in center
-        double wd = Math.min(w * 0.24, h * 0.72);
+
+        // 1. Dampers (intake/exhaust louvres at left)
+        g.setColor(new Color(0x45, 0x5A, 0x64));
+        g.setStroke(new BasicStroke(1.8f));
+        g.draw(new Line2D.Double(w * 0.08, h * 0.16, w * 0.14, h * 0.38));
+        g.draw(new Line2D.Double(w * 0.08, h * 0.62, w * 0.14, h * 0.84));
+
+        // 2. Filter banks (zig-zag)
+        g.setColor(new Color(0x54, 0x6E, 0x7A));
+        g.setStroke(new BasicStroke(1.2f));
+        for (double y0 : new double[]{h * 0.16, h * 0.62}) {
+            g.draw(new Line2D.Double(w * 0.22, y0, w * 0.27, y0 + h * 0.11));
+            g.draw(new Line2D.Double(w * 0.27, y0 + h * 0.11, w * 0.22, y0 + h * 0.22));
+        }
+
+        // 3. Heat recovery wheel (rotating center wheel)
+        double wd = Math.min(w * 0.20, h * 0.72);
+        double wcx = w * 0.45;
+        double wcy = h * 0.50;
         g.setColor(new Color(0x90, 0xA4, 0xAE));
-        g.fill(new Ellipse2D.Double(w * 0.5 - wd / 2.0, h * 0.5 - wd / 2.0, wd, wd));
+        g.fill(new Ellipse2D.Double(wcx - wd / 2.0, wcy - wd / 2.0, wd, wd));
         g.setColor(ScadaPalette.OUTLINE_DARK);
-        g.draw(new Ellipse2D.Double(w * 0.5 - wd / 2.0, h * 0.5 - wd / 2.0, wd, wd));
-        // Heating coil bar
+        g.draw(new Ellipse2D.Double(wcx - wd / 2.0, wcy - wd / 2.0, wd, wd));
+        double wheelAng = (state == EquipmentState.RUNNING) ? phase * 0.15 : 0.0;
+        for (int i = 0; i < 4; i++) {
+            double a = wheelAng + i * (Math.PI / 2.0);
+            g.draw(new Line2D.Double(wcx, wcy, wcx + Math.cos(a) * wd * 0.46, wcy + Math.sin(a) * wd * 0.46));
+        }
+
+        // 4. Heating & Cooling Coils
         g.setColor(state == EquipmentState.RUNNING ? HOT_RED : new Color(0x78, 0x90, 0x9C));
-        g.fill(new Rectangle2D.Double(w * 0.72, h * 0.14, 5, h * 0.24));
-        drawBadge(g, "AHU", w * 0.20, h * 0.32, ScadaPalette.TEXT_PRIMARY, 9);
+        g.fill(new Rectangle2D.Double(w * 0.62, h * 0.14, 4, h * 0.24));
+        g.setColor(state == EquipmentState.RUNNING ? COOL_BLUE : new Color(0x78, 0x90, 0x9C));
+        g.fill(new Rectangle2D.Double(w * 0.67, h * 0.14, 4, h * 0.24));
+
+        // 5. Humidifier droplets
+        g.setColor(state == EquipmentState.RUNNING ? COOL_BLUE : new Color(0x60, 0x7D, 0x8B));
+        g.fill(new Ellipse2D.Double(w * 0.74, h * 0.22, 4, 5));
+        g.fill(new Ellipse2D.Double(w * 0.77, h * 0.30, 4, 5));
+
+        // 6. Supply & Extract Fans (right)
+        double fd = Math.min(w * 0.12, h * 0.28);
+        double fanAng = (state == EquipmentState.RUNNING) ? phase * 0.35 : 0.0;
+        for (double fcy : new double[]{h * 0.28, h * 0.72}) {
+            double fcx = w * 0.88;
+            g.setColor(new Color(0x37, 0x47, 0x4F));
+            g.fill(new Ellipse2D.Double(fcx - fd / 2.0, fcy - fd / 2.0, fd, fd));
+            g.setColor(Color.WHITE);
+            g.setStroke(new BasicStroke(1.3f));
+            for (int i = 0; i < 3; i++) {
+                double a = fanAng + i * (2.0 * Math.PI / 3.0);
+                g.draw(new Line2D.Double(fcx, fcy, fcx + Math.cos(a) * fd * 0.42, fcy + Math.sin(a) * fd * 0.42));
+            }
+        }
+        drawBadge(g, "AHU", w * 0.35, h * 0.20, ScadaPalette.TEXT_PRIMARY, 8);
     }
 
     private static void paintCoil(Graphics2D g, double w, double h, boolean heating, EquipmentState state) {
@@ -502,6 +572,114 @@ public final class HvacHeatingRenderer {
         for (int i = 0; i < 3; i++) {
             double dx = w * (0.30 + i * 0.20);
             g.fill(new Ellipse2D.Double(dx - 3, h * 0.45, 6, 8));
+        }
+    }
+
+    private static void paintFanWithSpeed(Graphics2D g, double w, double h, EquipmentState state,
+                                          double phase, double speedPct, boolean axial) {
+        if (axial) {
+            ScadaShader.paintCylinderH(g, 2, h * 0.18, w - 4, h * 0.64, Material.STAINLESS_STEEL);
+        } else {
+            double r = Math.min(w, h) * 0.42;
+            ScadaShader.paintVoluteCasing(g, w * 0.5, h * 0.5, r, r * 0.72, Material.CAST_IRON);
+        }
+        double d = Math.min(w, h) * 0.54;
+        double cx = w * 0.5;
+        double cy = h * 0.5;
+        double angle = (state == EquipmentState.RUNNING) ? phase * (0.2 + 0.25 * (speedPct / 100.0)) : 0.0;
+        g.setColor(ScadaPalette.ROTOR_BLADE_A_HIGHLIGHT);
+        g.setStroke(new BasicStroke(2.2f));
+        for (int i = 0; i < 4; i++) {
+            double a = angle + i * (Math.PI / 2.0);
+            g.draw(new Line2D.Double(cx, cy, cx + Math.cos(a) * d * 0.42, cy + Math.sin(a) * d * 0.42));
+        }
+        drawBadge(g, String.format("%.0f%%", Math.max(0, Math.min(100, speedPct))), w * 0.5, h * 0.92, ScadaPalette.TEXT_PRIMARY, 8);
+    }
+
+    private static void paintCompressor(Graphics2D g, double w, double h, EquipmentState state, double phase, String tag) {
+        ScadaShader.paintCylinderH(g, w * 0.12, h * 0.18, w * 0.76, h * 0.64, Material.CAST_IRON);
+        double r = Math.min(w, h) * 0.24;
+        double ang = (state == EquipmentState.RUNNING) ? phase * 0.35 : 0.0;
+        ScadaShader.paintRotorImpeller(g, w * 0.50, h * 0.50, r, 6, ang);
+        drawBadge(g, tag, w * 0.50, h * 0.20, Color.WHITE, 8);
+    }
+
+    private static void paintExpansionValve(Graphics2D g, double w, double h, EquipmentState state) {
+        double cy = h * 0.60;
+        double cx = w * 0.50;
+        Polygon left = new Polygon(new int[]{2, (int) cx, 2}, new int[]{(int) (cy - h * 0.22), (int) cy, (int) (cy + h * 0.22)}, 3);
+        Polygon right = new Polygon(new int[]{(int) (w - 2), (int) cx, (int) (w - 2)}, new int[]{(int) (cy - h * 0.22), (int) cy, (int) (cy + h * 0.22)}, 3);
+        g.setColor(state == EquipmentState.RUNNING ? COOL_BLUE : new Color(0x63, 0x6D, 0x7A));
+        g.fill(left);
+        g.fill(right);
+        g.setColor(ScadaPalette.OUTLINE_DARK);
+        g.draw(left);
+        g.draw(right);
+        ScadaShader.paintDishedTankHead(g, cx - w * 0.22, h * 0.10, w * 0.44, h * 0.18, true, Material.STAINLESS_STEEL);
+        g.draw(new Line2D.Double(cx, h * 0.28, cx, cy));
+    }
+
+    private static void paintRefrigerantReceiver(Graphics2D g, double w, double h, EquipmentState state) {
+        ScadaShader.paintDishedTankHead(g, w * 0.16, 4, w * 0.68, h * 0.16, true, Material.STAINLESS_STEEL);
+        ScadaShader.paintCylinderV(g, w * 0.16, 4 + h * 0.16, w * 0.68, h * 0.62, Material.STAINLESS_STEEL);
+        ScadaShader.paintDishedTankHead(g, w * 0.16, h * 0.80, w * 0.68, h * 0.16, false, Material.STAINLESS_STEEL);
+        g.setColor(COOL_BLUE);
+        g.fill(new Rectangle2D.Double(w * 0.34, h * 0.46, w * 0.32, h * 0.28));
+        drawBadge(g, "RCV", w * 0.50, h * 0.36, ScadaPalette.TEXT_PRIMARY, 8);
+    }
+
+    private static void paintSolarCollector(Graphics2D g, double w, double h, EquipmentState state) {
+        ScadaShader.paintBeveledHousing(g, 2, 2, w - 4, h - 4, 4, Material.FLANGE_STEEL);
+        g.setColor(state == EquipmentState.RUNNING ? new Color(0x15, 0x65, 0xC0) : new Color(0x26, 0x32, 0x38));
+        g.fill(new Rectangle2D.Double(6, 6, w - 12, h - 12));
+        g.setColor(FLAME_ORANGE);
+        g.setStroke(new BasicStroke(1.6f));
+        for (int i = 1; i <= 4; i++) {
+            double x = 8 + (w - 16) * i / 5.0;
+            g.draw(new Line2D.Double(x, 8, x, h - 8));
+        }
+    }
+
+    private static void paintUnderfloorZone(Graphics2D g, ScadaSymbolInstance sym, double w, double h,
+                                            EquipmentState state, double tempC) {
+        ScadaShader.paintBeveledHousing(g, 2, 2, w - 4, h - 4, 4, Material.STAINLESS_STEEL);
+        g.setColor(state == EquipmentState.RUNNING ? FLAME_ORANGE : new Color(0x60, 0x7D, 0x8B));
+        g.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        int loops = 4;
+        double step = (h - 16) / loops;
+        for (int i = 0; i < loops; i++) {
+            double y0 = 8 + i * step;
+            g.draw(new Line2D.Double(8, y0, w - 8, y0));
+            if (i < loops - 1) {
+                double rx = (i % 2 == 0) ? w - 8 : 8;
+                g.draw(new Line2D.Double(rx, y0, rx, y0 + step));
+            }
+        }
+        drawBadge(g, String.format("%.1f°C", tempC), w * 0.50, h * 0.56, ScadaPalette.TEXT_PRIMARY, 8);
+    }
+
+    private static void paintVavBox(Graphics2D g, double w, double h, EquipmentState state, double posPct) {
+        ScadaShader.paintCylinderH(g, 2, h * 0.22, w - 4, h * 0.56, Material.STAINLESS_STEEL);
+        double clamped = Math.max(0.0, Math.min(100.0, posPct));
+        double bladeAng = Math.toRadians(85.0 - (clamped / 100.0) * 80.0);
+        double len = h * 0.24;
+        g.setColor(ScadaPalette.OUTLINE_DARK);
+        g.setStroke(new BasicStroke(2.5f));
+        g.draw(new Line2D.Double(w * 0.5 - Math.cos(bladeAng) * len, h * 0.5 - Math.sin(bladeAng) * len,
+                w * 0.5 + Math.cos(bladeAng) * len, h * 0.5 + Math.sin(bladeAng) * len));
+        drawBadge(g, String.format("VAV %.0f%%", clamped), w * 0.50, h * 0.94, ScadaPalette.TEXT_PRIMARY, 7);
+    }
+
+    private static void paintRoomSymbol(Graphics2D g, ScadaSymbolInstance sym, double w, double h,
+                                        EquipmentState state, double tempC) {
+        ScadaShader.paintBeveledHousing(g, 2, 2, w - 4, h - 4, 6, Material.STAINLESS_STEEL);
+        g.setColor(new Color(0x18, 0x1C, 0x20));
+        g.fill(new RoundRectangle2D.Double(6, 6, w - 12, h - 12, 4, 4));
+        drawBadge(g, String.format("%.1f°C", tempC), w * 0.50, h * 0.52,
+                state == EquipmentState.RUNNING ? new Color(0x69, 0xF0, 0xAE) : Color.WHITE, 11);
+        String sp = sym != null ? sym.getProperty("Setpoint", "") : "";
+        if (!sp.isBlank()) {
+            drawBadge(g, "SP " + sp + "°C", w * 0.50, h * 0.78, new Color(0x90, 0xCA, 0xF9), 8);
         }
     }
 

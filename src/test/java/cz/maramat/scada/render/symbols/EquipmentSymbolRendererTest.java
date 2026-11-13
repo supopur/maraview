@@ -274,4 +274,45 @@ class EquipmentSymbolRendererTest {
             assertTrue((img.getRGB(45, 45) >>> 24) > 0, "Expected non-empty render for " + t);
         }
     }
+
+    @Test
+    void rendersHvacFansCompressorsRefrigerationAndRoomZones() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag run = new ScadaTag("HvacRun2", DataType.BOOL, TagSourceType.INTERNAL);
+        run.setInitialValue("1");
+        run.resetRuntimeToInitial();
+        project.putTag(run);
+
+        ScadaTag temp = new ScadaTag("RoomTemp", DataType.FLOAT, TagSourceType.INTERNAL);
+        temp.setInitialValue("22.4");
+        temp.resetRuntimeToInitial();
+        project.putTag(temp);
+
+        InternalTagProvider tags = new InternalTagProvider();
+        SymbolLayerCache cache = new SymbolLayerCache();
+        EquipmentSymbolRenderer renderer = new EquipmentSymbolRenderer();
+
+        List<String> types = List.of(
+                "AhuUnit", "AxialFan", "CentrifugalFan",
+                "ScrewCompressor", "ScrollCompressor", "PistonCompressor", "CentrifugalCompressor",
+                "ExpansionValve", "RefrigerantReceiver",
+                "ThermalStorageTank", "SolarThermalCollector",
+                "UnderfloorHeatingZone", "ZoneValve", "VavBox", "RoomSymbol", "Radiator"
+        );
+
+        for (String t : types) {
+            ScadaSymbolInstance sym = cz.maramat.scada.model.SymbolCatalog.createInstance(t, 1, 1, 1);
+            sym.getTagBindings().put("RunTag", "HvacRun2");
+            sym.getTagBindings().put("TempTag", "RoomTemp");
+            sym.setProperty("Setpoint", "21.0");
+            BufferedImage img = new BufferedImage(200, 200, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                renderer.paintSymbol(g, sym, 10, project, tags, cache, 500L, false);
+            } finally {
+                g.dispose();
+            }
+            assertTrue((img.getRGB(40, 40) >>> 24) > 0, "Expected non-empty render for " + t);
+        }
+    }
 }

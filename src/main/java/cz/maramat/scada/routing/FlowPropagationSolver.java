@@ -257,18 +257,21 @@ public final class FlowPropagationSolver {
         // Tanks and external inlet/outlet boundaries terminate pass-through flow
         if (type.contains("Tank") || type.equals("HopperSilo") || type.equals("OpenBasin")
                 || type.equals("Silo") || type.equals("Hopper") || type.equals("Reactor")
+                || type.equals("RefrigerantReceiver")
                 || type.equals("Inlet") || type.equals("Outlet")) {
             return 0.0;
         }
         // Stopped pumps/blowers block flow; running pumps may pass/boost flow
-        if (type.endsWith("Pump") || type.equals("BlowerFan") || type.equals("VentilationFan") || type.equals("AirBlower")) {
+        if (type.endsWith("Pump") || type.equals("BlowerFan") || type.equals("VentilationFan")
+                || type.equals("AxialFan") || type.equals("CentrifugalFan") || type.equals("AirBlower")) {
             return evaluateSourceFlow(sym, project, tags) > 0.0 ? 1.0 : 0.0;
         }
         if (type.equals("HandValve") || type.equals("SolenoidValve") || type.equals("CheckValve")
                 || type.equals("SafetyReliefValve") || type.equals("Damper")
                 || type.equals("GateValve") || type.equals("GlobeValve") || type.equals("BallValve")
                 || type.equals("ButterflyValve") || type.equals("NeedleValve") || type.equals("PlugValve")
-                || type.equals("DiaphragmValve") || type.equals("FourWayValve")) {
+                || type.equals("DiaphragmValve") || type.equals("FourWayValve")
+                || type.equals("ZoneValve") || type.equals("ExpansionValve")) {
             String openTag = sym.getTagBindings().get("OpenTag");
             if (openTag == null || openTag.isBlank()) {
                 openTag = sym.getTagBindings().get("RunTag");

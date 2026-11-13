@@ -61,4 +61,32 @@ class RuntimeTagProviderTest {
         assertEquals(TagQuality.DISCONNECTED, plcTag.getRuntimeQuality());
         assertEquals(TagQuality.GOOD, internalTag.getRuntimeQuality());
     }
+
+    @Test
+    void readTagNeverBlocksOnEndpointIo() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag plcTag = new ScadaTag("Temp", DataType.FLOAT, TagSourceType.MFL_LINK);
+        plcTag.setAddressOrRef("VR10");
+        plcTag.setRuntimeValue(42.5);
+        project.putTag(plcTag);
+
+        PlcTagEndpoint throwingOnRead = new PlcTagEndpoint() {
+            @Override
+            public double readOperand(String operandOrAddress) {
+                throw new AssertionError("readTag must not perform blocking endpoint I/O");
+            }
+
+            @Override
+            public void writeOperand(String operandOrAddress, double value) {
+            }
+
+            @Override
+            public boolean isOnline() {
+                return true;
+            }
+        };
+
+        MaraflowBridgeTagProvider bridge = new MaraflowBridgeTagProvider(throwingOnRead);
+        assertEquals(42.5, bridge.readTag(project, "Temp"));
+    }
 }

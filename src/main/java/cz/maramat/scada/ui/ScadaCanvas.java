@@ -7,9 +7,8 @@ import cz.maramat.scada.model.ScadaProject;
 import cz.maramat.scada.model.ScadaScreen;
 import cz.maramat.scada.model.ScadaSymbolInstance;
 import cz.maramat.scada.render.PipeRenderer;
-import cz.maramat.scada.render.ScadaPalette;
-import cz.maramat.scada.render.ScadaShader;
 import cz.maramat.scada.render.SymbolLayerCache;
+import cz.maramat.scada.render.symbols.EquipmentSymbolRenderer;
 import cz.maramat.scada.routing.FlowPropagationSolver;
 import cz.maramat.scada.routing.FlowState;
 import cz.maramat.scada.routing.PipeEdgeDragController;
@@ -911,17 +910,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     }
 
     private static SymbolRenderer defaultSymbolRenderer() {
-        return (g, sym, gPx, project, tags, cache, timeMs, opMode) -> {
-            int x = sym.getGridX() * gPx;
-            int y = sym.getGridY() * gPx;
-            int w = sym.getEffectiveGridW() * gPx;
-            int h = sym.getEffectiveGridH() * gPx;
-            ScadaShader.paintBeveledHousing(g, x, y, w, h, 4.0, ScadaPalette.Material.CAST_IRON);
-            g.setColor(Color.WHITE);
-            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(9, gPx)));
-            Rectangle2D bounds = g.getFontMetrics().getStringBounds(sym.getName(), g);
-            g.drawString(sym.getName(), (float) (x + (w - bounds.getWidth()) / 2.0), (float) (y + h / 2.0 + bounds.getHeight() * 0.3));
-        };
+        return new EquipmentSymbolRenderer();
     }
 
     @Override

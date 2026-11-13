@@ -78,6 +78,51 @@ public final class SymbolCatalog {
                 new PortSpec("inlet", "Inlet", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
                 new PortSpec("discharge", "Relief", 1.0, 0.4, CardinalDirection.EAST, ConnectionType.PIPE)
         ));
+        register("GateValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 5, 4, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("GlobeValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 5, 4, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("BallValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 4, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("ButterflyValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 4, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("NeedleValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 5, 4, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("PlugValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 4, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("DiaphragmValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 5, 4, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("FourWayValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 6, 6, 6, 6, false, List.of(
+                new PortSpec("a", "Port A", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("b", "Port B", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("c", "Port C", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("d", "Port D", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("MotorizedValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 5, 6, 5, 6, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.65, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.65, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Motor Power", 0.3, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("cmd", "0-10V Cmd", 0.7, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("PneumaticValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 5, 6, 5, 6, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.65, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.65, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("air", "Air Supply", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PNEUMATIC)
+        ));
         register("AirDirtSeparator", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 4, 7, 4, 6, true, List.of(
                 new PortSpec("inlet", "Inlet", 0.0, 0.4, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Outlet", 1.0, 0.4, CardinalDirection.EAST, ConnectionType.PIPE)

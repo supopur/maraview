@@ -120,4 +120,46 @@ class EquipmentSymbolRendererTest {
             assertTrue((img.getRGB(40, 40) >>> 24) > 0, "Expected non-empty render for " + t);
         }
     }
+
+    @Test
+    void rendersAllNewValvesWithPositionFillAndFailSafeBadges() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag pos = new ScadaTag("ValvePos", DataType.FLOAT, TagSourceType.INTERNAL);
+        pos.setInitialValue("65.0");
+        pos.resetRuntimeToInitial();
+        project.putTag(pos);
+
+        InternalTagProvider tags = new InternalTagProvider();
+        SymbolLayerCache cache = new SymbolLayerCache();
+        EquipmentSymbolRenderer renderer = new EquipmentSymbolRenderer();
+
+        List<String> valves = List.of(
+                "GateValve", "GlobeValve", "BallValve", "ButterflyValve",
+                "NeedleValve", "PlugValve", "DiaphragmValve", "FourWayValve",
+                "MotorizedValve", "PneumaticValve", "ControlValve", "Damper"
+        );
+
+        for (int i = 0; i < valves.size(); i++) {
+            String v = valves.get(i);
+            ScadaSymbolInstance sym = cz.maramat.scada.model.SymbolCatalog.createInstance(v, 1, 1, 1);
+            sym.getTagBindings().put("PositionTag", "ValvePos");
+            sym.setProperty("FailSafe", (i % 2 == 0) ? "FO" : "FC");
+            BufferedImage img = new BufferedImage(120, 120, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                renderer.paintSymbol(g, sym, 10, project, tags, cache, 500L, false);
+            } finally {
+                g.dispose();
+            }
+            boolean hasOpaque = false;
+            for (int px = 15; px < 50 && !hasOpaque; px += 5) {
+                for (int py = 15; py < 55 && !hasOpaque; py += 5) {
+                    if ((img.getRGB(px, py) >>> 24) > 0) {
+                        hasOpaque = true;
+                    }
+                }
+            }
+            assertTrue(hasOpaque, "Expected non-empty render for " + v);
+        }
+    }
 }

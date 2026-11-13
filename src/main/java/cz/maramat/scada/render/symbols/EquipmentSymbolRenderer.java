@@ -113,7 +113,8 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
             } else if (isRotatingMachinery(type)) {
                 RotatingMachineryRenderer.paint(lg, type, localW, localH, gPx, state, speedPct / 100.0, animationTimeMs, layerCache);
             } else if (isValveOrDamper(type)) {
-                ValveDamperRenderer.paint(lg, type, localW, localH, gPx, open, posPct);
+                String failSafe = sym.getProperty("FailSafe", "");
+                ValveDamperRenderer.paint(lg, type, localW, localH, gPx, open, posPct, failSafe);
             } else if (isTankOrVessel(type)) {
                 TankVesselRenderer.paint(lg, type, localW, localH, gPx, levelPct, fluid, state, animationTimeMs, layerCache);
             } else if (isMaterialHandling(type)) {
@@ -292,7 +293,9 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
 
     private static boolean isValveOrDamper(String t) {
         return switch (t) {
-            case "HandValve", "SolenoidValve", "ControlValve", "CheckValve", "Damper", "Inlet", "Outlet" -> true;
+            case "HandValve", "SolenoidValve", "ControlValve", "CheckValve", "Damper", "Inlet", "Outlet",
+                 "GateValve", "GlobeValve", "BallValve", "ButterflyValve", "NeedleValve", "PlugValve",
+                 "DiaphragmValve", "FourWayValve", "MotorizedValve", "PneumaticValve" -> true;
             default -> false;
         };
     }

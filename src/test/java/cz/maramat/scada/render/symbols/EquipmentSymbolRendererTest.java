@@ -240,4 +240,38 @@ class EquipmentSymbolRendererTest {
             assertTrue(hasOpaque, "Expected non-empty render for " + t);
         }
     }
+
+    @Test
+    void rendersHvacHeatPumpsChillersBoilersAndCoolingEquipment() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag run = new ScadaTag("HvacRun", DataType.BOOL, TagSourceType.INTERNAL);
+        run.setInitialValue("1");
+        run.resetRuntimeToInitial();
+        project.putTag(run);
+
+        InternalTagProvider tags = new InternalTagProvider();
+        SymbolLayerCache cache = new SymbolLayerCache();
+        EquipmentSymbolRenderer renderer = new EquipmentSymbolRenderer();
+
+        List<String> types = List.of(
+                "HeatPump", "AirSourceHeatPump", "GroundSourceHeatPump", "WaterSourceHeatPump",
+                "Chiller", "GasBoiler", "ElectricBoiler", "BiomassBoiler", "Burner",
+                "ShellAndTubeHeatExchanger", "CoilHeatExchanger",
+                "CoolingTower", "DryCooler", "FanCoilUnit"
+        );
+
+        for (String t : types) {
+            ScadaSymbolInstance sym = cz.maramat.scada.model.SymbolCatalog.createInstance(t, 1, 1, 1);
+            sym.getTagBindings().put("RunTag", "HvacRun");
+            sym.setProperty("ReversingValve", "COOLING");
+            BufferedImage img = new BufferedImage(180, 180, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                renderer.paintSymbol(g, sym, 10, project, tags, cache, 500L, false);
+            } finally {
+                g.dispose();
+            }
+            assertTrue((img.getRGB(45, 45) >>> 24) > 0, "Expected non-empty render for " + t);
+        }
+    }
 }

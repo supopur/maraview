@@ -302,17 +302,94 @@ public final class SymbolCatalog {
                 new PortSpec("pwr", "230V/400V", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER),
                 new PortSpec("ctrl", "Bus/0-10V", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
         ));
+        register("GasBoiler", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 10, 12, 7, 8, true, List.of(
+                new PortSpec("supply", "Flow Out", 0.25, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("return", "Return In", 0.75, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("gas", "Gas Supply", 0.0, 0.75, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("ctrl", "Modulation", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ElectricBoiler", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 9, 12, 7, 8, true, List.of(
+                new PortSpec("supply", "Flow Out", 0.3, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("return", "Return In", 0.7, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V 3~", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "Control", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("BiomassBoiler", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 12, 12, 8, 8, true, List.of(
+                new PortSpec("supply", "Flow Out", 0.3, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("return", "Return In", 0.7, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Auger/Fan Pwr", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("Burner", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 7, 5, 5, 4, true, List.of(
+                new PortSpec("fuel", "Fuel In", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "Firing Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("Chiller", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 14, 10, 9, 7, true, List.of(
+                new PortSpec("chw_out", "CHW Supply", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("chw_in", "CHW Return", 0.0, 0.7, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("cw_out", "Cond Out", 1.0, 0.3, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("cw_in", "Cond In", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Power", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
         register("HeatPump", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 12, 10, 8, 7, true, List.of(
                 new PortSpec("supply", "Heating Out", 1.0, 0.3, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("return", "Heating In", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("pwr", "400V Supply", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
                 new PortSpec("ctrl", "MaR Bus", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
+        register("AirSourceHeatPump", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 13, 10, 9, 7, true, List.of(
+                new PortSpec("supply", "Flow Out", 1.0, 0.3, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("return", "Return In", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Power", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "MaR Bus", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("GroundSourceHeatPump", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 13, 10, 9, 7, true, List.of(
+                new PortSpec("brine_in", "Brine In", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("brine_out", "Brine Out", 0.0, 0.7, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("supply", "Flow Out", 1.0, 0.3, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("return", "Return In", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Power", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("WaterSourceHeatPump", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 13, 10, 9, 7, true, List.of(
+                new PortSpec("src_in", "Source In", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("src_out", "Source Out", 0.0, 0.7, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("supply", "Flow Out", 1.0, 0.3, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("return", "Return In", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Power", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
         register("PlateHeatExchanger", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 8, 10, 6, 7, true, List.of(
                 new PortSpec("pri_in", "Primary In", 0.0, 0.2, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("pri_out", "Primary Out", 0.0, 0.8, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("sec_out", "Secondary Out", 1.0, 0.2, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("sec_in", "Secondary In", 1.0, 0.8, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("ShellAndTubeHeatExchanger", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 12, 7, 8, 5, true, List.of(
+                new PortSpec("tube_in", "Tube In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("tube_out", "Tube Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("shell_in", "Shell In", 0.25, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("shell_out", "Shell Out", 0.75, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("CoilHeatExchanger", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 8, 9, 6, 6, true, List.of(
+                new PortSpec("pri_in", "Coil In", 0.0, 0.25, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("pri_out", "Coil Out", 0.0, 0.75, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("sec_in", "Shell In", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("sec_out", "Shell Out", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("CoolingTower", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 11, 13, 7, 8, true, List.of(
+                new PortSpec("hot_in", "Hot Water In", 0.0, 0.35, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("cold_out", "Cooled Out", 1.0, 0.85, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Fan Motor", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("DryCooler", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 13, 7, 8, 5, true, List.of(
+                new PortSpec("inlet", "Fluid In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Fluid Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Fan Power", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("FanCoilUnit", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 10, 6, 7, 5, true, List.of(
+                new PortSpec("water_in", "Water In", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("water_out", "Water Out", 0.0, 0.7, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("air_out", "Air Supply", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "230V Fan", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
         ));
         register("BufferTank", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 8, 14, 6, 9, true, List.of(
                 new PortSpec("top_in", "Hot Top", 0.0, 0.2, CardinalDirection.WEST, ConnectionType.PIPE),

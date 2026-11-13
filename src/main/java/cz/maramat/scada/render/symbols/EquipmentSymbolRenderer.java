@@ -108,6 +108,8 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                 // Rendered by WastewaterRenderer
             } else if (ActuatorRenderer.paint(lg, sym, localW, localH, gPx, project, tagProvider, state, animationTimeMs)) {
                 // Rendered by ActuatorRenderer
+            } else if (ProcessFittingRenderer.paint(lg, sym, localW, localH, gPx, state, fluid, animationTimeMs)) {
+                // Rendered by ProcessFittingRenderer
             } else if (MarSensorRenderer.paint(lg, sym, localW, localH, state, numVal)) {
                 // Rendered by MarSensorRenderer
             } else if (isRotatingMachinery(type)) {

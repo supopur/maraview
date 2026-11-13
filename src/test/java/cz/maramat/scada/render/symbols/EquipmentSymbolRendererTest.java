@@ -198,4 +198,46 @@ class EquipmentSymbolRendererTest {
             assertTrue((img.getRGB(55, 70) >>> 24) > 0, "Expected non-empty render for " + v);
         }
     }
+
+    @Test
+    void rendersAllFittingsFlowElementsAndProcessEquipment() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag run = new ScadaTag("RunProc", DataType.BOOL, TagSourceType.INTERNAL);
+        run.setInitialValue("1");
+        run.resetRuntimeToInitial();
+        project.putTag(run);
+
+        InternalTagProvider tags = new InternalTagProvider();
+        SymbolLayerCache cache = new SymbolLayerCache();
+        EquipmentSymbolRenderer renderer = new EquipmentSymbolRenderer();
+
+        List<String> types = List.of(
+                "TeeFitting", "ElbowFitting", "ReducerFitting", "FlangeFitting", "Strainer",
+                "ProcessFilter", "SteamTrap", "SightGlass", "ExpansionJoint", "Coupling",
+                "OrificePlate", "VenturiTube", "MagneticFlowMeter", "UltrasonicFlowMeter",
+                "CoriolisFlowMeter", "Rotameter",
+                "MixerAgitator", "Separator", "Cyclone", "Scrubber", "ProcessScreen"
+        );
+
+        for (String t : types) {
+            ScadaSymbolInstance sym = cz.maramat.scada.model.SymbolCatalog.createInstance(t, 1, 1, 1);
+            sym.getTagBindings().put("RunTag", "RunProc");
+            BufferedImage img = new BufferedImage(160, 180, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                renderer.paintSymbol(g, sym, 10, project, tags, cache, 500L, false);
+            } finally {
+                g.dispose();
+            }
+            boolean hasOpaque = false;
+            for (int px = 15; px < 80 && !hasOpaque; px += 5) {
+                for (int py = 15; py < 80 && !hasOpaque; py += 5) {
+                    if ((img.getRGB(px, py) >>> 24) > 0) {
+                        hasOpaque = true;
+                    }
+                }
+            }
+            assertTrue(hasOpaque, "Expected non-empty render for " + t);
+        }
+    }
 }

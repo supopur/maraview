@@ -139,6 +139,75 @@ public final class SymbolCatalog {
                 new PortSpec("inlet", "Drain In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE)
         ));
 
+        // 1b. Pipe Fittings
+        register("TeeFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
+                new PortSpec("a", "Left", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("b", "Right", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("c", "Branch", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("ElbowFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
+                new PortSpec("a", "In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("b", "Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("ReducerFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
+                new PortSpec("inlet", "Large End", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Small End", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("FlangeFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 3, 4, 3, 3, false, List.of(
+                new PortSpec("a", "Side A", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("b", "Side B", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("Strainer", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 5, 5, 4, 4, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.4, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.4, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("ProcessFilter", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 5, 6, 4, 5, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.35, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.35, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("SteamTrap", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 4, 4, false, List.of(
+                new PortSpec("inlet", "Condensate In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Drain Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("SightGlass", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 5, 4, 4, 3, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("ExpansionJoint", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 5, 4, 4, 3, true, List.of(
+                new PortSpec("a", "Side A", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("b", "Side B", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("Coupling", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, false, List.of(
+                new PortSpec("a", "Side A", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("b", "Side B", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+
+        // 1c. Process Equipment
+        register("MixerAgitator", "Process Equipment", EquipmentDomain.FLUID_EQUIPMENT, 6, 10, 5, 7, true, List.of(
+                new PortSpec("pwr", "Motor Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("Separator", "Process Equipment", EquipmentDomain.FLUID_EQUIPMENT, 9, 10, 6, 7, true, List.of(
+                new PortSpec("inlet", "Feed In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("light", "Top Outlet", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("heavy", "Bottom Outlet", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("Cyclone", "Process Equipment", EquipmentDomain.FLUID_EQUIPMENT, 8, 12, 6, 8, true, List.of(
+                new PortSpec("inlet", "Tangential In", 0.0, 0.25, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("gas", "Clean Gas Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("solids", "Solids Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("Scrubber", "Process Equipment", EquipmentDomain.FLUID_EQUIPMENT, 9, 13, 6, 9, true, List.of(
+                new PortSpec("gas_in", "Gas In", 0.0, 0.75, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("gas_out", "Clean Gas Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("liquid_in", "Spray Liquid", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("drain", "Effluent Drain", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("ProcessScreen", "Process Equipment", EquipmentDomain.FLUID_EQUIPMENT, 8, 7, 6, 5, true, List.of(
+                new PortSpec("inlet", "Feed In", 0.0, 0.35, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Screened Out", 1.0, 0.65, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("rejects", "Rejects", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+
         // 2. Pumps & Fans
         register("CentrifugalPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 8, 10, 6, 7, true, List.of(
                 new PortSpec("suction", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
@@ -423,6 +492,35 @@ public final class SymbolCatalog {
                 new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("sig", "Pulse/Flow", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("OrificePlate", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("dp", "dP Signal", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("VenturiTube", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 6, 5, 5, 4, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("dp", "dP Signal", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("MagneticFlowMeter", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 6, 6, 5, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("sig", "4-20mA Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("UltrasonicFlowMeter", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 6, 5, 5, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("sig", "Pulse/Bus", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("CoriolisFlowMeter", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 6, 6, 5, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("sig", "Mass Flow", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("Rotameter", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 8, 4, 6, true, List.of(
+                new PortSpec("inlet", "Bottom In", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Top Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE)
         ));
         register("Calorimeter", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 6, 6, 5, 5, false, List.of(
                 new PortSpec("inlet", "Flow In", 0.0, 0.65, CardinalDirection.WEST, ConnectionType.PIPE),

@@ -2,6 +2,7 @@ package cz.maramat.scada.ui;
 
 import cz.maramat.scada.model.CardinalDirection;
 import cz.maramat.scada.model.ConnectionType;
+import cz.maramat.scada.model.DataType;
 import cz.maramat.scada.model.EquipmentDomain;
 import cz.maramat.scada.model.GridPoint;
 import cz.maramat.scada.model.PipePort;
@@ -11,6 +12,8 @@ import cz.maramat.scada.model.ScadaProject;
 import cz.maramat.scada.model.ScadaScreen;
 import cz.maramat.scada.model.ScadaSymbolInstance;
 import cz.maramat.scada.model.SymbolCatalog;
+import cz.maramat.scada.tags.ScadaTag;
+import cz.maramat.scada.tags.TagSourceType;
 import org.junit.jupiter.api.Test;
 
 import java.awt.event.MouseEvent;
@@ -20,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScadaCanvasInteractionTest {
@@ -187,5 +191,27 @@ class ScadaCanvasInteractionTest {
         } finally {
             canvas.dispose();
         }
+    }
+
+    @Test
+    void scadaCatalogExcludesSimControllersIncludesWastewaterAndRestoresTagOnReplay() {
+        assertNull(SymbolCatalog.getDefinition("PidController"));
+        assertNull(SymbolCatalog.getDefinition("MarController"));
+
+        assertEquals(EquipmentDomain.WASTEWATER, SymbolCatalog.getDomain("AerationBasin"));
+        assertEquals(EquipmentDomain.WASTEWATER, SymbolCatalog.getDomain("PrimaryClarifier"));
+        assertEquals(EquipmentDomain.WASTEWATER, SymbolCatalog.getDomain("AnaerobicDigester"));
+        assertEquals(EquipmentDomain.WASTEWATER, SymbolCatalog.getDomain("UvDisinfection"));
+
+        ScadaTag pumpRun = new ScadaTag("Pump1_Run", DataType.BOOL, TagSourceType.INTERNAL);
+        pumpRun.setInitialValue("1");
+        pumpRun.resetRuntimeToInitial();
+        assertEquals(1.0, pumpRun.getRuntimeValue());
+
+        // Stop zeroes runtime value, Play restores initial value
+        pumpRun.setRuntimeValue(0.0);
+        assertEquals(0.0, pumpRun.getRuntimeValue());
+        pumpRun.resetRuntimeToInitial();
+        assertEquals(1.0, pumpRun.getRuntimeValue());
     }
 }

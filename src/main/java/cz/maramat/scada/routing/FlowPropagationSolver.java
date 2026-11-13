@@ -131,7 +131,7 @@ public final class FlowPropagationSolver {
 
     private static double evaluateSourceFlow(ScadaSymbolInstance sym, ScadaProject project, RuntimeTagProvider tags) {
         String type = sym.getSymbolType();
-        if (type.endsWith("Pump") || type.equals("BlowerFan")) {
+        if (type.endsWith("Pump") || type.equals("BlowerFan") || type.equals("VentilationFan") || type.equals("AirBlower")) {
             String runTag = sym.getTagBindings().get("RunTag");
             String speedTag = sym.getTagBindings().get("SpeedTag");
             double run = (runTag != null && !runTag.isBlank()) ? readBinding(project, tags, runTag, 0.0) : 0.0;
@@ -158,7 +158,8 @@ public final class FlowPropagationSolver {
         if (type.contains("Tank") || type.equals("HopperSilo") || type.equals("OpenBasin")) {
             return 0.0;
         }
-        if (type.equals("HandValve") || type.equals("SolenoidValve") || type.equals("CheckValve") || type.equals("Damper")) {
+        if (type.equals("HandValve") || type.equals("SolenoidValve") || type.equals("CheckValve")
+                || type.equals("SafetyReliefValve") || type.equals("Damper")) {
             String openTag = sym.getTagBindings().getOrDefault("OpenTag", sym.getTagBindings().get("RunTag"));
             if (openTag != null && !openTag.isBlank()) {
                 return readBinding(project, tags, openTag, 0.0) > 0.0 ? 1.0 : 0.0;
@@ -166,7 +167,7 @@ public final class FlowPropagationSolver {
             String propOpen = sym.getProperties().getOrDefault("Open", "true");
             return Boolean.parseBoolean(propOpen) ? 1.0 : 0.0;
         }
-        if (type.equals("ControlValve")) {
+        if (type.equals("ControlValve") || type.equals("TwoWayControlValve") || type.equals("ThreeWayMixingValve")) {
             String posTag = sym.getTagBindings().getOrDefault("PositionTag", sym.getTagBindings().get("SetpointTag"));
             if (posTag != null && !posTag.isBlank()) {
                 double pos = readBinding(project, tags, posTag, 0.0);

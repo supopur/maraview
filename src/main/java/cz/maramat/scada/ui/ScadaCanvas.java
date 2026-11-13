@@ -1729,26 +1729,32 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                         dtde.dropComplete(false);
                         return;
                     }
-                    int gPx = getGridSizePx();
-                    int gx = Math.max(0, Math.round(dtde.getLocation().x / (float) gPx));
-                    int gy = Math.max(0, Math.round(dtde.getLocation().y / (float) gPx));
-
-                    undoManager.recordSnapshot("Drop " + symbolType, screen);
-                    int idx = screen.getSymbols().size() + 1;
-                    ScadaSymbolInstance sym = SymbolCatalogTree.createDefaultInstance(symbolType, symbolType + "-" + idx, gx, gy);
-                    screen.getSymbols().add(sym);
-                    selectedSymbolIds.clear();
-                    selectedPipeIds.clear();
-                    selectedSymbolIds.add(sym.getId());
-                    markDirty();
-                    requestFocusInWindow();
-                    repaint();
+                    dropSymbolAtPixel(symbolType, dtde.getLocation().x, dtde.getLocation().y);
                     dtde.dropComplete(true);
                 } catch (Exception ex) {
                     dtde.dropComplete(false);
                 }
             }
         }, true);
+    }
+
+    public void dropSymbolAtPixel(String symbolType, int px, int py) {
+        if (operatorMode || screen == null || symbolType == null || symbolType.isBlank()) return;
+        int gPx = getGridSizePx();
+        int gx = Math.max(0, Math.round(px / (float) gPx));
+        int gy = Math.max(0, Math.round(py / (float) gPx));
+
+        undoManager.recordSnapshot("Drop " + symbolType, screen);
+        int idx = screen.getSymbols().size() + 1;
+        ScadaSymbolInstance sym = SymbolCatalogTree.createDefaultInstance(symbolType, symbolType + "-" + idx, gx, gy);
+        screen.getSymbols().add(sym);
+        selectedSymbolIds.clear();
+        selectedPipeIds.clear();
+        selectedGraphicIds.clear();
+        selectedSymbolIds.add(sym.getId());
+        markDirty();
+        requestFocusInWindow();
+        repaint();
     }
 
     private PortHit hitTestPort(double gx, double gy, double toleranceGrid) {

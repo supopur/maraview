@@ -466,6 +466,9 @@ public class MaraviewWindow extends JFrame {
     }
 
     public void onSimPlay() {
+        if (currentSimState == SimState.STOPPED) {
+            restoreInitialTagValues();
+        }
         updateSimUiState(SimState.RUNNING);
         statusLabel.setText(" Simulation Running");
     }
@@ -482,12 +485,26 @@ public class MaraviewWindow extends JFrame {
     }
 
     public void onSimStep() {
+        if (currentSimState == SimState.STOPPED) {
+            restoreInitialTagValues();
+        }
         ScadaCanvas c = getActiveCanvas();
         if (c != null) {
             c.stepSimulation();
             updateSimUiState(c.getSimState());
             statusLabel.setText(" Simulation Stepped");
         }
+    }
+
+    private void restoreInitialTagValues() {
+        if (project != null) {
+            for (ScadaTag tag : project.getTags().values()) {
+                tag.resetRuntimeToInitial();
+            }
+            alarmEngine.evaluate(project, System.currentTimeMillis());
+        }
+        refreshTagTable();
+        alarmBanner.refresh(System.currentTimeMillis());
     }
 
     private void resetAllIoAndStates() {

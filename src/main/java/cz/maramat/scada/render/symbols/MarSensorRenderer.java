@@ -33,8 +33,6 @@ public final class MarSensorRenderer {
             case "Co2Sensor" -> { paintBadgeSensor(g, "CO2", w, h, state); yield true; }
             case "Calorimeter" -> { paintCalorimeter(g, w, h, state, numericValue); yield true; }
             case "RoomThermostat" -> { paintRoomThermostat(g, sym, w, h, state, numericValue); yield true; }
-            case "MarController" -> { paintMarController(g, sym, w, h, state); yield true; }
-            case "PidController" -> { paintPidController(g, sym, w, h, state, numericValue); yield true; }
             default -> false;
         };
     }

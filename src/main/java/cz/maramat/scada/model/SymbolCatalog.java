@@ -273,54 +273,110 @@ public final class SymbolCatalog {
                 new PortSpec("pwr", "Motor", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
         ));
 
-        // 6. MaR Sensors & Controllers (Měření a regulace)
-        register("TempSensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+        // 6. MaR Sensors & Meters (Měření a regulace)
+        register("TempSensor", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
                 new PortSpec("sig", "Pt1000/4-20mA", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("OutdoorTempSensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+        register("OutdoorTempSensor", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
                 new PortSpec("sig", "Outside T", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("PressureSensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+        register("PressureSensor", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
                 new PortSpec("sig", "4-20mA Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("DiffPressureSensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 5, 5, 5, 5, false, List.of(
+        register("DiffPressureSensor", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 5, 5, 5, 5, false, List.of(
                 new PortSpec("sig", "dP Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("FlowMeter", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 6, 5, 5, 4, false, List.of(
+        register("FlowMeter", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 6, 5, 5, 4, false, List.of(
                 new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("sig", "Pulse/Flow", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("Calorimeter", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 6, 6, 5, 5, false, List.of(
+        register("Calorimeter", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 6, 6, 5, 5, false, List.of(
                 new PortSpec("inlet", "Flow In", 0.0, 0.65, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Flow Out", 1.0, 0.65, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("sig", "M-Bus/kW", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("HumiditySensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+        register("HumiditySensor", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
                 new PortSpec("sig", "%RH Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("Co2Sensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+        register("Co2Sensor", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
                 new PortSpec("sig", "CO2 ppm", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("RoomThermostat", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 5, 5, 5, 5, false, List.of(
+        register("RoomThermostat", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 5, 5, 5, 5, false, List.of(
                 new PortSpec("sig", "Bus/AI", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("LevelSwitch", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+        register("LevelSwitch", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
                 new PortSpec("sig", "DI Switch", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("ProximitySensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 4, 4, 4, false, List.of(
+        register("ProximitySensor", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 4, 4, 4, false, List.of(
                 new PortSpec("sig", "DI Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("MarController", "MaR Sensors & Controllers", EquipmentDomain.MAR_CONTROLLER, 12, 8, 8, 6, true, List.of(
-                new PortSpec("pwr", "24V Power", 0.0, 0.25, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER),
-                new PortSpec("ai1", "AI 1", 0.25, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL),
-                new PortSpec("ai2", "AI 2", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL),
-                new PortSpec("ao1", "AO 1", 0.75, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL),
-                new PortSpec("do1", "DO/Relay", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+
+        // 6b. Wastewater Treatment Plant (WWTP / ČOV)
+        register("BarScreen", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 9, 8, 6, 6, true, List.of(
+                new PortSpec("in", "Raw Influent", 0.0, 0.55, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Screened Out", 1.0, 0.55, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Rake Drive", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
         ));
-        register("PidController", "MaR Sensors & Controllers", EquipmentDomain.MAR_CONTROLLER, 9, 7, 7, 5, true, List.of(
-                new PortSpec("pv", "PV In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL),
-                new PortSpec("op", "OP Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        register("GritChamber", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 10, 8, 7, 6, true, List.of(
+                new PortSpec("in", "Inlet", 0.0, 0.4, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Outlet", 1.0, 0.4, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("grit", "Grit Drain", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("PrimaryClarifier", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 12, 12, 8, 8, true, List.of(
+                new PortSpec("in", "Influent", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Effluent", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("sludge", "Primary Sludge", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Bridge Drive", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("AerationBasin", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 14, 10, 9, 7, true, List.of(
+                new PortSpec("in", "Inlet", 0.0, 0.35, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Mixed Liquor", 1.0, 0.35, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("air", "Air Header", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("do", "DO Sensor", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("AirBlower", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 7, 7, 5, 5, true, List.of(
+                new PortSpec("air_out", "Air Supply", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Motor", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "VFD/Speed", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("SecondaryClarifier", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 12, 12, 8, 8, true, List.of(
+                new PortSpec("in", "Mixed Liquor In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Clarified Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("ras", "RAS/WAS Sludge", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Bridge Drive", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("SludgeThickener", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 10, 11, 7, 7, true, List.of(
+                new PortSpec("in", "Sludge In", 0.0, 0.35, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Thickened Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("super", "Supernatant", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("AnaerobicDigester", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 10, 14, 7, 9, true, List.of(
+                new PortSpec("in", "Sludge Feed", 0.0, 0.55, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Digested Out", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("gas", "Biogas Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE)
+        ));
+        register("FilterPress", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 12, 8, 8, 6, true, List.of(
+                new PortSpec("in", "Sludge Feed", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("filtrate", "Filtrate", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Hydraulic Pwr", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("UvDisinfection", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 10, 6, 7, 5, true, List.of(
+                new PortSpec("in", "Effluent In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Treated Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "UV Ballast", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("DosingStation", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 7, 8, 5, 6, true, List.of(
+                new PortSpec("out", "Chemical Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("ctrl", "Dosing Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("SubmersibleMixer", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 7, 5, 5, 4, true, List.of(
+                new PortSpec("pwr", "Power Cable", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("ArchimedesScrewPump", "Wastewater Treatment (WWTP)", EquipmentDomain.WASTEWATER, 10, 8, 7, 6, true, List.of(
+                new PortSpec("in", "Low Sump In", 0.0, 0.85, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("out", "Elevated Out", 1.0, 0.15, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Drive Motor", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
         ));
 
         // 7. Material Handling & Machines

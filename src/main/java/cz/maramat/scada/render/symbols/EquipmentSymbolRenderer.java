@@ -90,6 +90,8 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                 // Rendered by ElectricalSymbolRenderer
             } else if (HvacHeatingRenderer.paint(lg, sym, localW, localH, state, phase)) {
                 // Rendered by HvacHeatingRenderer
+            } else if (WastewaterRenderer.paint(lg, sym, localW, localH, state, phase)) {
+                // Rendered by WastewaterRenderer
             } else if (MarSensorRenderer.paint(lg, sym, localW, localH, state, numVal)) {
                 // Rendered by MarSensorRenderer
             } else if (isRotatingMachinery(type)) {

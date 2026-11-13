@@ -96,7 +96,7 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         addRow(leftPanel, lgbc, lr++, "Rotation (deg):", rotCombo);
 
         switch (domain) {
-            case FLUID_EQUIPMENT, HEATING_HVAC -> {
+            case FLUID_EQUIPMENT, HEATING_HVAC, WASTEWATER -> {
                 fluidCombo = new JComboBox<>(FluidType.values());
                 fluidCombo.setSelectedItem(parseFluid(symbol.getProperties().getOrDefault("fluidType",
                         symbol.getProperties().getOrDefault("FluidType", FluidType.WATER.name()))));
@@ -114,7 +114,7 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
                 ratedPowerField = new JTextField(symbol.getProperties().getOrDefault("ratedPower", "4.0 kW"), 12);
                 addRow(leftPanel, lgbc, lr++, "Rated Power / Current:", ratedPowerField);
             }
-            case MAR_SENSOR, MAR_CONTROLLER -> {
+            case MAR_SENSOR -> {
                 unitsField = new JTextField(symbol.getProperties().getOrDefault("unit",
                         symbol.getProperties().getOrDefault("EngineeringUnits", "°C")), 12);
                 minField = new JTextField(symbol.getProperties().getOrDefault("rangeMin",
@@ -124,10 +124,6 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
                 addRow(leftPanel, lgbc, lr++, "Engineering Unit:", unitsField);
                 addRow(leftPanel, lgbc, lr++, "Range Min:", minField);
                 addRow(leftPanel, lgbc, lr++, "Range Max:", maxField);
-                if (domain == EquipmentDomain.MAR_CONTROLLER) {
-                    setpointField = new JTextField(symbol.getProperties().getOrDefault("setpoint", "21.0"), 12);
-                    addRow(leftPanel, lgbc, lr++, "Setpoint (SP):", setpointField);
-                }
             }
             case OPERATOR_CONTROL -> {
                 unitsField = new JTextField(symbol.getProperties().getOrDefault("EngineeringUnits", ""), 12);
@@ -195,11 +191,10 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         return switch (domain) {
             case ELECTRICAL -> new String[]{"RunTag", "FaultTag", "OpenTag", "ValueTag"};
             case MAR_SENSOR -> new String[]{"ValueTag", "FaultTag"};
-            case MAR_CONTROLLER -> new String[]{"ValueTag", "SetpointTag", "RunTag", "FaultTag"};
             case OPERATOR_CONTROL -> type.contains("Numeric") || type.equals("BarGraph") || type.equals("TrendChart")
                     ? new String[]{"ValueTag", "SetpointTag"}
                     : new String[]{"RunTag", "OpenTag", "FaultTag"};
-            case FLUID_EQUIPMENT, HEATING_HVAC -> {
+            case FLUID_EQUIPMENT, HEATING_HVAC, WASTEWATER -> {
                 if (type.contains("Valve") || type.equals("Damper")) {
                     yield new String[]{"OpenTag", "PositionTag", "FaultTag"};
                 }

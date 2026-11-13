@@ -7,8 +7,8 @@ package cz.maramat.scada.model;
 public enum EquipmentDomain {
     FLUID_EQUIPMENT,
     HEATING_HVAC,
+    WASTEWATER,
     ELECTRICAL,
     MAR_SENSOR,
-    MAR_CONTROLLER,
     OPERATOR_CONTROL
 }

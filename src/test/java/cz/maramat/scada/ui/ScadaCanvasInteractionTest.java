@@ -112,7 +112,7 @@ class ScadaCanvasInteractionTest {
 
             assertEquals(ScadaCanvas.SimState.STOPPED, canvas.getSimState());
 
-            // Click on empty viewport in editor mode -> steps simulation once
+            // Click on empty viewport in editor mode -> should NOT step simulation
             canvas.setSize(800, 600);
             MouseEvent press = new MouseEvent(canvas, MouseEvent.MOUSE_PRESSED,
                     System.currentTimeMillis(), 0, 5, 5, 1, false, MouseEvent.BUTTON1);
@@ -121,11 +121,12 @@ class ScadaCanvasInteractionTest {
             canvas.dispatchEvent(press);
             canvas.dispatchEvent(release);
 
-            assertEquals(ScadaCanvas.SimState.PAUSED, canvas.getSimState());
-            assertEquals(1, stepCalls.get());
+            assertEquals(ScadaCanvas.SimState.STOPPED, canvas.getSimState());
+            assertEquals(0, stepCalls.get());
 
             canvas.stepSimulation();
-            assertEquals(2, stepCalls.get());
+            assertEquals(ScadaCanvas.SimState.PAUSED, canvas.getSimState());
+            assertEquals(1, stepCalls.get());
 
             canvas.setSimState(ScadaCanvas.SimState.STOPPED);
             assertEquals(ScadaCanvas.SimState.STOPPED, canvas.getSimState());

@@ -1264,10 +1264,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 if (marqueeActive && marqueeStartPx != null && marqueeEndPx != null) {
                     int mw = Math.abs(marqueeEndPx.x - marqueeStartPx.x);
                     int mh = Math.abs(marqueeEndPx.y - marqueeStartPx.y);
-                    if (mw < 4 && mh < 4) {
-                        // Single click on editor viewport simulates/runs one step
-                        stepSimulation();
-                    } else {
+                    if (mw >= 4 || mh >= 4) {
                         Rectangle rect = new Rectangle(
                                 Math.min(marqueeStartPx.x, marqueeEndPx.x),
                                 Math.min(marqueeStartPx.y, marqueeEndPx.y),

@@ -50,16 +50,19 @@ public final class RotatingMachineryRenderer {
 
             // Mounting base feet
             ScadaShader.paintBeveledHousing(sg, sw * 0.18, sh - gPx * 1.1, sw * 0.64, gPx * 1.0, 2.0, Material.FLANGE_STEEL);
-            // Discharge neck (top, aligned with port at 3G)
+            // Discharge neck (top, aligned with port at 0.375 * sw)
+            double disX = sw * 0.375;
+            double flangeT = Math.max(4.0, gPx * 0.45);
             double neckW = Math.max(gPx * 1.6, outerR * 0.52);
-            double neckX = Math.max(2.0, gPx * 3.0 - neckW / 2.0);
-            ScadaShader.paintCylinderV(sg, neckX, 2.0, neckW, cy - outerR * 0.3, Material.CAST_IRON);
-            ScadaShader.paintFlange(sg, gPx * 3.0, Math.max(3.0, gPx * 0.3), neckW + 6.0, Math.max(4.0, gPx * 0.45), CardinalDirection.NORTH);
+            double neckX = Math.max(0.0, disX - neckW / 2.0);
+            ScadaShader.paintCylinderV(sg, neckX, 0.0, neckW, cy - outerR * 0.3, Material.CAST_IRON);
+            ScadaShader.paintFlange(sg, disX, flangeT / 2.0, neckW + 6.0, flangeT, CardinalDirection.NORTH);
 
-            // Suction neck (west, aligned with port at 5G)
+            // Suction neck (west, aligned with port at 0.5 * sh)
+            double sucY = sh * 0.50;
             double sucH = Math.max(gPx * 1.5, outerR * 0.48);
-            ScadaShader.paintCylinderH(sg, 2.0, gPx * 5.0 - sucH / 2.0, cx - outerR * 0.4, sucH, Material.CAST_IRON);
-            ScadaShader.paintFlange(sg, Math.max(3.0, gPx * 0.3), gPx * 5.0, sucH + 6.0, Math.max(4.0, gPx * 0.45), CardinalDirection.WEST);
+            ScadaShader.paintCylinderH(sg, 0.0, sucY - sucH / 2.0, cx - outerR * 0.4, sucH, Material.CAST_IRON);
+            ScadaShader.paintFlange(sg, flangeT / 2.0, sucY, sucH + 6.0, flangeT, CardinalDirection.WEST);
 
             // Volute casing with recessed circular sight-glass cavity
             ScadaShader.paintVoluteCasing(sg, cx, cy, outerR, cutoutR, Material.CAST_IRON);
@@ -80,9 +83,9 @@ public final class RotatingMachineryRenderer {
         CacheKey key = new CacheKey("InlinePump", w, h, 0, false, false, "SHELL");
         BufferedImage shell = cache.getOrCreateBackground(key, (sg, sw, sh) -> {
             double pipeH = Math.max(gPx * 1.5, sh * 0.32);
-            ScadaShader.paintCylinderH(sg, 2.0, (sh - pipeH) / 2.0, sw - 4.0, pipeH, Material.CAST_IRON);
-            ScadaShader.paintFlange(sg, 3.0, sh / 2.0, pipeH + 6.0, 4.0, CardinalDirection.WEST);
-            ScadaShader.paintFlange(sg, sw - 3.0, sh / 2.0, pipeH + 6.0, 4.0, CardinalDirection.EAST);
+            ScadaShader.paintCylinderH(sg, 0.0, (sh - pipeH) / 2.0, sw, pipeH, Material.CAST_IRON);
+            ScadaShader.paintFlange(sg, 2.0, sh / 2.0, pipeH + 6.0, 4.0, CardinalDirection.WEST);
+            ScadaShader.paintFlange(sg, sw - 2.0, sh / 2.0, pipeH + 6.0, 4.0, CardinalDirection.EAST);
             double r = Math.min(sw, sh) * 0.36;
             ScadaShader.paintVoluteCasing(sg, sw / 2.0, sh / 2.0, r, r * 0.62, Material.CAST_IRON);
         });

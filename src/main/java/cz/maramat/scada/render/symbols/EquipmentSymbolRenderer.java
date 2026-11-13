@@ -1,6 +1,7 @@
 package cz.maramat.scada.render.symbols;
 
 import cz.maramat.scada.model.FluidType;
+import cz.maramat.scada.model.PipePort;
 import cz.maramat.scada.model.ScadaProject;
 import cz.maramat.scada.model.ScadaSymbolInstance;
 import cz.maramat.scada.render.EquipmentState;
@@ -46,7 +47,11 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
 
         EquipmentState state = resolveState(sym, project, tagProvider);
         double speedPct = readBoundValue(sym, project, tagProvider, "SpeedTag", state == EquipmentState.RUNNING ? 100.0 : 0.0);
-        double levelPct = readBoundValue(sym, project, tagProvider, "LevelTag", 65.0);
+        double rawLevel = readBoundValue(sym, project, tagProvider, "LevelTag", 65.0);
+        double minLevel = readDoubleProp(sym, "Min", "rangeMin", 0.0);
+        double maxLevel = readDoubleProp(sym, "Max", "rangeMax", 100.0);
+        double levelSpan = maxLevel - minLevel;
+        double levelPct = (levelSpan > 0.0) ? ((rawLevel - minLevel) / levelSpan) * 100.0 : rawLevel;
         double posPct = readBoundValue(sym, project, tagProvider, "PositionTag",
                 readBoundValue(sym, project, tagProvider, "SetpointTag", 50.0));
         boolean open = isValveOpen(sym, project, tagProvider);
@@ -81,6 +86,11 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                 at.scale(1.0, -1.0);
             }
             lg.transform(at);
+
+            for (PipePort port : sym.getPorts()) {
+                ScadaShader.paintPortNozzle(lg, port.offsetX() * (double) gPx, port.offsetY() * (double) gPx,
+                        port.direction(), gPx, port.connectionType());
+            }
 
             String type = sym.getSymbolType();
             double phase = animationTimeMs / 60.0;
@@ -155,6 +165,16 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         return Boolean.parseBoolean(sym.getProperties().getOrDefault("Open", "true"));
     }
 
+    private static double readDoubleProp(ScadaSymbolInstance sym, String key1, String key2, double fallback) {
+        String raw = sym.getProperties().getOrDefault(key1, sym.getProperties().get(key2));
+        if (raw == null || raw.isBlank()) return fallback;
+        try {
+            return Double.parseDouble(raw.trim());
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
     private static FluidType parseFluid(String raw) {
         if (raw == null || raw.isBlank()) return FluidType.WATER;
         try {
@@ -173,7 +193,7 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
 
     private static boolean isValveOrDamper(String t) {
         return switch (t) {
-            case "HandValve", "SolenoidValve", "ControlValve", "CheckValve", "Damper" -> true;
+            case "HandValve", "SolenoidValve", "ControlValve", "CheckValve", "Damper", "Inlet", "Outlet" -> true;
             default -> false;
         };
     }

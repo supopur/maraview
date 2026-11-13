@@ -1,5 +1,6 @@
 package cz.maramat.scada.routing;
 
+import cz.maramat.scada.model.ConnectionType;
 import cz.maramat.scada.model.FluidType;
 import cz.maramat.scada.model.ScadaPipe;
 import cz.maramat.scada.model.ScadaProject;
@@ -70,8 +71,8 @@ public final class FlowPropagationSolver {
             if (sourceFlow > 0.0) {
                 List<ScadaPipe> connected = pipesBySymbol.getOrDefault(sym.getId(), List.of());
                 for (ScadaPipe pipe : connected) {
-                    if (pipe.isAutoFlow() && !activePipes.contains(pipe.getId())) {
-                        // Discharge or general port from running pump / tank
+                    if (pipe.isAutoFlow() && !activePipes.contains(pipe.getId()) && canSourceOnPipe(sym, pipe)) {
+                        // Only seed from discharge/outlet ports (never backwards out of an inlet/suction port)
                         result.put(pipe.getId(), new FlowState(true, sourceFlow, pipe.getFluidType()));
                         activePipes.add(pipe.getId());
                         queue.add(pipe);
@@ -102,6 +103,17 @@ public final class FlowPropagationSolver {
                     symById, pipesBySymbol, project, tags, result, activePipes, queue);
         }
 
+        // 3. Only animate flow (flowRate > 0) on pressurized pipes that have a path to an actual sink/load.
+        // Dead-ended pipes (e.g. filled tank -> closed solenoid valve, power -> open switch) stay pressurized
+        // with flowRate = 0.0 (no water bubbles, paused wire animation).
+        Set<String> flowingPipes = findFlowingPipesToSinks(screen.getPipes(), activePipes, symById, pipesBySymbol, project, tags);
+        for (ScadaPipe pipe : screen.getPipes()) {
+            FlowState fs = result.get(pipe.getId());
+            if (fs != null && fs.pressurized() && !flowingPipes.contains(pipe.getId())) {
+                result.put(pipe.getId(), new FlowState(true, 0.0, fs.fluidType()));
+            }
+        }
+
         return result;
     }
 
@@ -117,9 +129,24 @@ public final class FlowPropagationSolver {
         double conductance = evaluateConductance(sym, project, tags);
         if (conductance <= 0.0) return;
 
+        boolean isCheckValve = "CheckValve".equals(sym.getSymbolType());
+        if (isCheckValve) {
+            ScadaPipe fromPipe = findPipe(pipesBySymbol.getOrDefault(symbolId, List.of()), fromPipeId);
+            String fromPortId = fromPipe != null ? getConnectedPortId(fromPipe, symbolId) : null;
+            if (fromPortId != null && !isInletPortId(fromPortId)) {
+                return; // Check valve blocks reverse flow entering through its outlet
+            }
+        }
+
         double nextRate = curState.flowRate() * conductance;
         for (ScadaPipe neighbor : pipesBySymbol.getOrDefault(symbolId, List.of())) {
             if (neighbor.getId().equals(fromPipeId)) continue;
+            if (isCheckValve) {
+                String neighborPortId = getConnectedPortId(neighbor, symbolId);
+                if (neighborPortId != null && isInletPortId(neighborPortId)) {
+                    continue; // Check valve only discharges out of its outlet
+                }
+            }
             if (neighbor.isAutoFlow() && !activePipes.contains(neighbor.getId())) {
                 FluidType ft = (neighbor.getFluidType() == FluidType.EMPTY) ? curState.fluidType() : neighbor.getFluidType();
                 result.put(neighbor.getId(), new FlowState(true, nextRate, ft));
@@ -127,6 +154,41 @@ public final class FlowPropagationSolver {
                 queue.add(neighbor);
             }
         }
+    }
+
+    private static ScadaPipe findPipe(List<ScadaPipe> pipes, String pipeId) {
+        for (ScadaPipe p : pipes) {
+            if (p.getId().equals(pipeId)) return p;
+        }
+        return null;
+    }
+
+    private static boolean canSourceOnPipe(ScadaSymbolInstance sym, ScadaPipe pipe) {
+        String portId = getConnectedPortId(pipe, sym.getId());
+        if (portId != null) {
+            return !isInletPortId(portId);
+        }
+        // Fallback when portIds are omitted: only source out of pipes whose sourceSymbolId is this symbol
+        return sym.getId().equals(pipe.getSourceSymbolId());
+    }
+
+    private static String getConnectedPortId(ScadaPipe pipe, String symbolId) {
+        if (symbolId.equals(pipe.getSourceSymbolId())) {
+            return pipe.getSourcePortId();
+        }
+        if (symbolId.equals(pipe.getTargetSymbolId())) {
+            return pipe.getTargetPortId();
+        }
+        return null;
+    }
+
+    private static boolean isInletPortId(String portId) {
+        if (portId == null) return false;
+        String lower = portId.toLowerCase();
+        return lower.equals("inlet") || lower.equals("in") || lower.equals("suction")
+                || lower.equals("top_in") || lower.equals("bot_in") || lower.equals("fill")
+                || lower.equals("air") || lower.equals("return") || lower.equals("feed")
+                || lower.endsWith("_in") || lower.endsWith("_inlet");
     }
 
     private static double evaluateSourceFlow(ScadaSymbolInstance sym, ScadaProject project, RuntimeTagProvider tags) {
@@ -149,14 +211,42 @@ public final class FlowPropagationSolver {
             }
             return 0.0;
         }
+        if (type.equals("Inlet")) {
+            for (String role : new String[]{"RunTag", "OpenTag", "ValueTag"}) {
+                String t = sym.getTagBindings().get(role);
+                if (t != null && !t.isBlank()) {
+                    return readBinding(project, tags, t, 0.0) > 0.0 ? 1.0 : 0.0;
+                }
+            }
+            return 1.0;
+        }
+        // Electrical power sources
+        if (type.equals("PowerSource400V") || type.equals("PowerSource230V") || type.equals("PowerSource24V")) {
+            return 1.0;
+        }
+        // Operator buttons / switches: only source signal when pressed/active
+        if (type.equals("PushButton") || type.equals("EStopMushroom") || type.equals("SelectorSwitch")) {
+            for (String role : new String[]{"RunTag", "OpenTag", "ValueTag"}) {
+                String t = sym.getTagBindings().get(role);
+                if (t != null && !t.isBlank()) {
+                    return readBinding(project, tags, t, 0.0) != 0.0 ? 1.0 : 0.0;
+                }
+            }
+            return 0.0;
+        }
         return 0.0;
     }
 
     private static double evaluateConductance(ScadaSymbolInstance sym, ScadaProject project, RuntimeTagProvider tags) {
         String type = sym.getSymbolType();
-        // Tanks terminate flow (do not pass pressure straight through unless they are a source)
-        if (type.contains("Tank") || type.equals("HopperSilo") || type.equals("OpenBasin")) {
+        // Tanks and external inlet/outlet boundaries terminate pass-through flow
+        if (type.contains("Tank") || type.equals("HopperSilo") || type.equals("OpenBasin")
+                || type.equals("Inlet") || type.equals("Outlet")) {
             return 0.0;
+        }
+        // Stopped pumps/blowers block flow; running pumps may pass/boost flow
+        if (type.endsWith("Pump") || type.equals("BlowerFan") || type.equals("VentilationFan") || type.equals("AirBlower")) {
+            return evaluateSourceFlow(sym, project, tags) > 0.0 ? 1.0 : 0.0;
         }
         if (type.equals("HandValve") || type.equals("SolenoidValve") || type.equals("CheckValve")
                 || type.equals("SafetyReliefValve") || type.equals("Damper")) {
@@ -175,8 +265,90 @@ public final class FlowPropagationSolver {
             }
             return 1.0;
         }
+        // Electrical switching / protection devices
+        if (type.equals("CircuitBreaker") || type.equals("Contactor") || type.equals("VfdDrive")
+                || type.equals("OverloadRelay") || type.equals("Fuse")) {
+            for (String role : new String[]{"RunTag", "OpenTag", "ValueTag"}) {
+                String t = sym.getTagBindings().get(role);
+                if (t != null && !t.isBlank()) {
+                    return readBinding(project, tags, t, 0.0) > 0.0 ? 1.0 : 0.0;
+                }
+            }
+            return type.equals("Fuse") ? 1.0 : 0.0;
+        }
+        if (type.equals("PushButton") || type.equals("EStopMushroom") || type.equals("SelectorSwitch")) {
+            return evaluateSourceFlow(sym, project, tags) > 0.0 ? 1.0 : 0.0;
+        }
         // Inline sensors (FlowMeter, PressureSensor, TempSensor, HeaterCoil) pass flow straight through
         return 1.0;
+    }
+
+    private static Set<String> findFlowingPipesToSinks(List<ScadaPipe> pipes, Set<String> activePipes,
+                                                     Map<String, ScadaSymbolInstance> symById,
+                                                     Map<String, List<ScadaPipe>> pipesBySymbol,
+                                                     ScadaProject project, RuntimeTagProvider tags) {
+        Map<String, ScadaPipe> pipeById = new HashMap<>();
+        for (ScadaPipe p : pipes) {
+            pipeById.put(p.getId(), p);
+        }
+
+        Set<String> flowing = new HashSet<>();
+        Deque<ScadaPipe> queue = new ArrayDeque<>();
+        for (ScadaPipe p : pipes) {
+            if (!activePipes.contains(p.getId())) continue;
+            boolean touchesSink = !p.isAutoFlow()
+                    || isSinkEndpoint(p.getTargetSymbolId(), p.getTargetPortId(), p.getConnectionType(), symById)
+                    || (p.getSourceTeePipeId() != null && !p.getSourceTeePipeId().isBlank() && p.getTargetSymbolId() == null);
+            if (touchesSink) {
+                flowing.add(p.getId());
+                queue.add(p);
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            ScadaPipe cur = queue.poll();
+            if (cur.getSourceTeePipeId() != null && !cur.getSourceTeePipeId().isBlank()) {
+                ScadaPipe parent = pipeById.get(cur.getSourceTeePipeId());
+                if (parent != null && activePipes.contains(parent.getId()) && flowing.add(parent.getId())) {
+                    queue.add(parent);
+                }
+            }
+            for (String symId : new String[]{cur.getSourceSymbolId(), cur.getTargetSymbolId()}) {
+                if (symId == null) continue;
+                ScadaSymbolInstance sym = symById.get(symId);
+                if (sym == null || evaluateConductance(sym, project, tags) <= 0.0) continue;
+                for (ScadaPipe neighbor : pipesBySymbol.getOrDefault(symId, List.of())) {
+                    if (activePipes.contains(neighbor.getId()) && flowing.add(neighbor.getId())) {
+                        queue.add(neighbor);
+                    }
+                }
+            }
+        }
+        return flowing;
+    }
+
+    private static boolean isSinkEndpoint(String symbolId, String portId, ConnectionType connType,
+                                          Map<String, ScadaSymbolInstance> symById) {
+        if (symbolId == null) return false;
+        ScadaSymbolInstance sym = symById.get(symbolId);
+        if (sym == null) return false;
+        String type = sym.getSymbolType();
+        if (connType == ConnectionType.ELECTRICAL_POWER || connType == ConnectionType.CONTROL_SIGNAL) {
+            return type.equals("ElectricMotor") || type.equals("PilotLamp")
+                    || type.equals("SolenoidValve") || type.equals("ControlValve")
+                    || type.equals("TwoWayControlValve") || type.equals("ThreeWayMixingValve")
+                    || type.equals("HeaterCoil") || type.endsWith("Pump")
+                    || type.equals("BlowerFan") || type.equals("VentilationFan") || type.equals("AirBlower")
+                    || type.equals("NumericReadout") || type.equals("BarGraph") || type.equals("TrendChart");
+        }
+        if (portId != null && !isInletPortId(portId)) {
+            // If connected to an outlet port of a tank, it's not a sink (that's the source side)
+            return false;
+        }
+        return type.equals("Outlet") || type.contains("Tank") || type.equals("HopperSilo") || type.equals("OpenBasin")
+                || type.equals("PrimaryClarifier") || type.equals("AerationBasin")
+                || type.equals("AnaerobicDigester") || type.equals("SludgeThickener")
+                || type.equals("UvDisinfection");
     }
 
     private static double readBinding(ScadaProject project, RuntimeTagProvider tags, String tagName, double fallback) {

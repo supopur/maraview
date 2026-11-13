@@ -2,6 +2,10 @@ package cz.maramat.scada.tags;
 
 import cz.maramat.scada.model.ScadaProject;
 
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+
 /**
  * RuntimeTagProvider bridging ScadaTags to an external PlcTagEndpoint (such as Maraflow's
  * SimulationEngine or a serial/TCP PlcConnection), falling back to internal memory for INTERNAL tags.
@@ -49,17 +53,34 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
     public void syncAll(ScadaProject project) {
         if (project == null) return;
         boolean online = endpoint != null && endpoint.isOnline();
+        Set<String> refs = new LinkedHashSet<>();
         for (ScadaTag tag : project.getTags().values()) {
             if (tag.getSourceType() == TagSourceType.INTERNAL) {
                 tag.setRuntimeQuality(TagQuality.GOOD);
+            } else if (!online) {
+                tag.setRuntimeQuality(TagQuality.DISCONNECTED);
+            } else {
+                refs.add(resolveEndpointRef(tag));
+            }
+        }
+        if (!online || refs.isEmpty()) {
+            return;
+        }
+        Map<String, Double> values = endpoint.readOperands(refs);
+        boolean stillOnline = endpoint.isOnline();
+        for (ScadaTag tag : project.getTags().values()) {
+            if (tag.getSourceType() == TagSourceType.INTERNAL) {
                 continue;
             }
-            if (!online) {
+            if (!stillOnline) {
                 tag.setRuntimeQuality(TagQuality.DISCONNECTED);
                 continue;
             }
-            double val = endpoint.readOperand(resolveEndpointRef(tag));
-            tag.setRuntimeValue(val);
+            String ref = resolveEndpointRef(tag);
+            Double val = values.get(ref);
+            if (val != null) {
+                tag.setRuntimeValue(val);
+            }
             tag.setRuntimeQuality(TagQuality.GOOD);
         }
     }

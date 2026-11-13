@@ -4,6 +4,8 @@ package cz.maramat.scada.model;
  * Communication settings for connecting the SCADA runtime to simulation or physical PLC hardware.
  */
 public class CommSettings {
+    public static final int DEFAULT_MARAFLOW_SIM_PORT = 18502;
+
     public enum Mode {
         INTERNAL_SIM,
         MARAFLOW_SIM,

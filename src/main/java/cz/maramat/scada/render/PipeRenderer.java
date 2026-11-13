@@ -44,11 +44,11 @@ public final class PipeRenderer {
         if (verts.size() < 2) return;
 
         if (pipe.getConnectionType() == ConnectionType.ELECTRICAL_POWER) {
-            paintWire(g, verts, gridSizePx, true, simActive, dashPhasePx, selected);
+            paintWire(g, verts, gridSizePx, true, simActive, flowState, dashPhasePx, selected);
             return;
         }
         if (pipe.getConnectionType() == ConnectionType.CONTROL_SIGNAL) {
-            paintWire(g, verts, gridSizePx, false, simActive, dashPhasePx, selected);
+            paintWire(g, verts, gridSizePx, false, simActive, flowState, dashPhasePx, selected);
             return;
         }
 
@@ -263,7 +263,8 @@ public final class PipeRenderer {
     }
 
     private static void paintWire(Graphics2D g, List<GridPoint> verts, int gridSizePx,
-                                  boolean powerWire, boolean simActive, double dashPhasePx, boolean selected) {
+                                  boolean powerWire, boolean simActive, FlowState flowState,
+                                  double dashPhasePx, boolean selected) {
         Paint oldPaint = g.getPaint();
         Stroke oldStroke = g.getStroke();
 
@@ -275,8 +276,9 @@ public final class PipeRenderer {
         g.setStroke(new BasicStroke(outerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         drawPolyline(g, verts, gridSizePx);
 
-        // Inner conductor
-        if (simActive) {
+        // Inner conductor: only animate when actively flowing/energized; otherwise pause
+        boolean flowing = simActive && flowState != null && flowState.pressurized() && flowState.flowRate() > 0.0;
+        if (flowing) {
             g.setColor(powerWire ? new Color(0xFF, 0x98, 0x00) : new Color(0x00, 0xE6, 0x76));
             float phase = (float) (((dashPhasePx % 14.0) + 14.0) % 14.0);
             g.setStroke(new BasicStroke(innerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,

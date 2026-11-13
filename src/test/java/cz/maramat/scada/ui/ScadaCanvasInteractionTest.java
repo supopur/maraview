@@ -12,6 +12,7 @@ import cz.maramat.scada.model.ScadaProject;
 import cz.maramat.scada.model.ScadaScreen;
 import cz.maramat.scada.model.ScadaSymbolInstance;
 import cz.maramat.scada.model.SymbolCatalog;
+import cz.maramat.scada.tags.InternalTagProvider;
 import cz.maramat.scada.tags.ScadaTag;
 import cz.maramat.scada.tags.TagSourceType;
 import org.junit.jupiter.api.Test;
@@ -214,5 +215,54 @@ class ScadaCanvasInteractionTest {
         assertEquals(0.0, pumpRun.getRuntimeValue());
         pumpRun.resetRuntimeToInitial();
         assertEquals(1.0, pumpRun.getRuntimeValue());
+    }
+
+    @Test
+    void operatorPushButtonSupportsToggleAndMomentaryWithoutDoubleFiring() {
+        ScadaProject project = new ScadaProject();
+        project.putTag(new ScadaTag("BtnToggle", DataType.BOOL, TagSourceType.INTERNAL));
+        project.putTag(new ScadaTag("BtnMomentary", DataType.BOOL, TagSourceType.INTERNAL));
+
+        ScadaScreen screen = project.getScreens().getFirst();
+        ScadaSymbolInstance toggleBtn = SymbolCatalog.createInstance("PushButton", 10, 10, 1);
+        toggleBtn.getTagBindings().put("RunTag", "BtnToggle");
+        toggleBtn.setProperty("ButtonMode", "Toggle");
+
+        ScadaSymbolInstance momBtn = SymbolCatalog.createInstance("PushButton", 20, 10, 2);
+        momBtn.getTagBindings().put("RunTag", "BtnMomentary");
+        momBtn.setProperty("ButtonMode", "Momentary");
+
+        screen.getSymbols().addAll(List.of(toggleBtn, momBtn));
+
+        InternalTagProvider tags = new InternalTagProvider();
+        ScadaCanvas canvas = new ScadaCanvas(project, screen);
+        canvas.setTagProvider(tags);
+        canvas.setOperatorMode(true);
+        try {
+            int gPx = canvas.getGridSizePx();
+            int tx = 12 * gPx;
+            int ty = 12 * gPx;
+            // Toggle mode: press + release + click should toggle ONCE (0 -> 1)
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_PRESSED, 1, 0, tx, ty, 1, false, MouseEvent.BUTTON1));
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_RELEASED, 2, 0, tx, ty, 1, false, MouseEvent.BUTTON1));
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_CLICKED, 3, 0, tx, ty, 1, false, MouseEvent.BUTTON1));
+            assertEquals(1.0, tags.readTag(project, "BtnToggle"), "Toggle button must stay ON after first click");
+
+            // Second click should toggle back OFF (1 -> 0)
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_PRESSED, 4, 0, tx, ty, 1, false, MouseEvent.BUTTON1));
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_RELEASED, 5, 0, tx, ty, 1, false, MouseEvent.BUTTON1));
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_CLICKED, 6, 0, tx, ty, 1, false, MouseEvent.BUTTON1));
+            assertEquals(0.0, tags.readTag(project, "BtnToggle"), "Toggle button must turn OFF after second click");
+
+            // Momentary mode: press -> 1.0, release -> 0.0, click -> still 0.0
+            int mx = 22 * gPx;
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_PRESSED, 7, 0, mx, ty, 1, false, MouseEvent.BUTTON1));
+            assertEquals(1.0, tags.readTag(project, "BtnMomentary"), "Momentary button must be ON while held");
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_RELEASED, 8, 0, mx, ty, 1, false, MouseEvent.BUTTON1));
+            canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_CLICKED, 9, 0, mx, ty, 1, false, MouseEvent.BUTTON1));
+            assertEquals(0.0, tags.readTag(project, "BtnMomentary"), "Momentary button must return to OFF on release");
+        } finally {
+            canvas.dispose();
+        }
     }
 }

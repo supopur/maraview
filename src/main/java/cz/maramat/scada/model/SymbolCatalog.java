@@ -87,6 +87,12 @@ public final class SymbolCatalog {
                 new PortSpec("outlet", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("cmd", "Actuator", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
+        register("Inlet", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
+                new PortSpec("outlet", "Supply Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("Outlet", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
+                new PortSpec("inlet", "Drain In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE)
+        ));
 
         // 2. Pumps & Fans
         register("CentrifugalPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 8, 10, 6, 7, true, List.of(

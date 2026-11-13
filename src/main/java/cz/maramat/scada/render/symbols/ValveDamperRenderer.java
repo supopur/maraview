@@ -21,7 +21,7 @@ public final class ValveDamperRenderer {
 
     public static void paint(Graphics2D g, String type, int w, int h, int gPx,
                              boolean open, double positionPct) {
-        double cy = h * 0.60;
+        double cy = (type.equals("HandValve") || type.equals("CheckValve")) ? h * 0.50 : h * 0.60;
         double cx = w * 0.50;
 
         switch (type) {
@@ -68,12 +68,44 @@ public final class ValveDamperRenderer {
                 g.setColor(ScadaPalette.OUTLINE_DARK);
                 g.fill(new Ellipse2D.Double(w / 2.0 - 3, h / 2.0 - 3, 6, 6));
             }
+            case "Inlet" -> paintBoundaryPort(g, w, h, true);
+            case "Outlet" -> paintBoundaryPort(g, w, h, false);
             default -> paintValveBowtieBody(g, cx, cy, w, h, open);
         }
     }
 
+    private static void paintBoundaryPort(Graphics2D g, int w, int h, boolean isInlet) {
+        double midY = h * 0.50;
+        double bodyW = w * 0.72;
+        double bodyH = h * 0.64;
+        double bx = isInlet ? 2.0 : (w - bodyW - 2.0);
+        double by = (h - bodyH) / 2.0;
+
+        ScadaShader.paintBeveledHousing(g, bx, by, bodyW, bodyH, 5.0, Material.FLANGE_STEEL);
+
+        // Directional chevron pointing EAST (into process for Inlet, out to drain for Outlet)
+        double acx = bx + bodyW * 0.50;
+        double aw = bodyW * 0.34;
+        double ah = bodyH * 0.28;
+        Path2D.Double arrow = new Path2D.Double();
+        arrow.moveTo(acx - aw, midY - ah * 0.55);
+        arrow.lineTo(acx, midY - ah * 0.55);
+        arrow.lineTo(acx, midY - ah);
+        arrow.lineTo(acx + aw, midY);
+        arrow.lineTo(acx, midY + ah);
+        arrow.lineTo(acx, midY + ah * 0.55);
+        arrow.lineTo(acx - aw, midY + ah * 0.55);
+        arrow.closePath();
+
+        g.setColor(isInlet ? new Color(0x1E, 0x88, 0xE5) : new Color(0x00, 0x89, 0x7B));
+        g.fill(arrow);
+        g.setColor(ScadaPalette.OUTLINE_DARK);
+        g.setStroke(new BasicStroke(1.1f));
+        g.draw(arrow);
+    }
+
     private static void paintValveBowtieBody(Graphics2D g, double cx, double cy, int w, int h, boolean open) {
-        double halfW = w * 0.42;
+        double halfW = w * 0.50;
         double halfH = h * 0.24;
         Path2D.Double bowtie = new Path2D.Double();
         bowtie.moveTo(cx - halfW, cy - halfH);

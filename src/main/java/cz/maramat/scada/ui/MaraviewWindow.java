@@ -1,7 +1,12 @@
 package cz.maramat.scada.ui;
 
+import com.formdev.flatlaf.FlatLaf;
+import cz.maramat.Main;
 import cz.maramat.scada.alarms.AlarmEngine;
+import cz.maramat.scada.config.UserConfig;
+import cz.maramat.scada.config.UserConfigStore;
 import cz.maramat.scada.io.MslProjectSerializer;
+import cz.maramat.scada.model.CommSettings;
 import cz.maramat.scada.model.ConnectionType;
 import cz.maramat.scada.model.DataType;
 import cz.maramat.scada.model.FluidType;
@@ -13,7 +18,10 @@ import cz.maramat.scada.model.ScadaScreen;
 import cz.maramat.scada.model.ScadaSymbolInstance;
 import cz.maramat.scada.routing.PipeRouter;
 import cz.maramat.scada.tags.InternalTagProvider;
+import cz.maramat.scada.tags.MaraflowBridgeTagProvider;
+import cz.maramat.scada.tags.MaraflowSimClient;
 import cz.maramat.scada.tags.MflTagImporter;
+import cz.maramat.scada.tags.RuntimeTagProvider;
 import cz.maramat.scada.tags.ScadaTag;
 import cz.maramat.scada.tags.TagQuality;
 import cz.maramat.scada.tags.TagSourceType;
@@ -24,6 +32,7 @@ import javax.swing.Box;
 import javax.swing.ButtonGroup;
 import javax.swing.Icon;
 import javax.swing.JButton;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -32,6 +41,7 @@ import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
@@ -40,11 +50,14 @@ import javax.swing.JToggleButton;
 import javax.swing.JToolBar;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -57,14 +70,34 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Main Maraview SCADA Designer & Operator Runtime window matching MaraFlow's Win95/Win7 chrome.
  */
 public class MaraviewWindow extends JFrame {
 
+    private static final String CARD_HOME = "HOME";
+    private static final String CARD_WORKSPACE = "WORKSPACE";
+
     private ScadaProject project;
-    private final InternalTagProvider tagProvider = new InternalTagProvider();
+    private boolean projectOpen = false;
+    private UserConfig userConfig;
+    private final CardLayout rootCardLayout = new CardLayout();
+    private final JPanel rootCardPanel = new JPanel(rootCardLayout);
+    private HomeScreenPanel homeScreenPanel;
+    private final InternalTagProvider internalTagProvider = new InternalTagProvider();
+    private final MaraflowSimClient maraflowSimClient = new MaraflowSimClient();
+    private final MaraflowBridgeTagProvider maraflowTagProvider = new MaraflowBridgeTagProvider(maraflowSimClient);
+    private RuntimeTagProvider tagProvider = internalTagProvider;
+    private final ExecutorService simPollExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "Maraview-Sim-Poll");
+        t.setDaemon(true);
+        return t;
+    });
+    private final AtomicBoolean simPollInFlight = new AtomicBoolean(false);
     private final AlarmEngine alarmEngine = new AlarmEngine();
     private final AlarmBannerPanel alarmBanner = new AlarmBannerPanel(alarmEngine);
     private final JTabbedPane screenTabs = new JTabbedPane();
@@ -73,6 +106,14 @@ public class MaraviewWindow extends JFrame {
     private final JTable tagTable;
     private final JLabel zoomLabel = new JLabel(" 100% ");
     private final JLabel statusLabel = new JLabel(" Ready");
+    private JPanel statusBar;
+    private JMenu recentMenu;
+    private JCheckBoxMenuItem viewGridItem;
+    private JCheckBoxMenuItem viewFlowItem;
+    private JCheckBoxMenuItem viewStatusBarItem;
+    private JCheckBoxMenuItem viewAlarmBannerItem;
+    private JRadioButtonMenuItem simInternalItem;
+    private JRadioButtonMenuItem simMaraflowItem;
 
     private JButton playPauseBtn;
     private JButton stopBtn;
@@ -92,16 +133,24 @@ public class MaraviewWindow extends JFrame {
     private boolean operatorMode = false;
 
     public MaraviewWindow(ScadaProject initialProject, boolean startInOperatorMode) {
-        this.project = (initialProject == null) ? createSampleProject() : initialProject;
+        this(initialProject, startInOperatorMode, UserConfigStore.load());
+    }
+
+    public MaraviewWindow(ScadaProject initialProject, boolean startInOperatorMode, UserConfig userConfig) {
+        this.userConfig = (userConfig == null) ? new UserConfig() : userConfig;
+        this.project = (initialProject == null) ? new ScadaProject() : initialProject;
+        this.projectOpen = (initialProject != null);
 
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
-        setSize(1280, 800);
+        setSize(this.userConfig.getWindowWidth(), this.userConfig.getWindowHeight());
         setLocationRelativeTo(null);
+        if (this.userConfig.isWindowMaximized()) {
+            setExtendedState(getExtendedState() | JFrame.MAXIMIZED_BOTH);
+        }
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                disposeAllCanvases();
-                dispose();
+                attemptExit();
             }
         });
 
@@ -133,10 +182,35 @@ public class MaraviewWindow extends JFrame {
 
         setJMenuBar(buildMenuBar());
         setLayout(new BorderLayout());
+
+        this.homeScreenPanel = new HomeScreenPanel(new HomeScreenPanel.HomeScreenListener() {
+            @Override
+            public void onNewProjectWizard(boolean promptMflLink) {
+                onNewProject(promptMflLink);
+            }
+
+            @Override
+            public void onOpenProjectDialog() {
+                onOpenMsl();
+            }
+
+            @Override
+            public void onOpenRecentFile(File file) {
+                openProjectFile(file);
+            }
+
+            @Override
+            public void onClearRecentFiles() {
+                MaraviewWindow.this.userConfig.clearRecentProjects();
+                rebuildRecentMenu();
+                saveUserConfigQuietly();
+                homeScreenPanel.setRecentPaths(MaraviewWindow.this.userConfig.getRecentProjects());
+            }
+        });
+
         this.quickToolbar = buildToolbar();
         buildOperatorBar();
         topBarHost.add(quickToolbar, BorderLayout.CENTER);
-        add(topBarHost, BorderLayout.NORTH);
 
         JTree symbolTree = SymbolCatalogTree.createTree();
         JScrollPane treeScroll = new JScrollPane(symbolTree);
@@ -148,35 +222,49 @@ public class MaraviewWindow extends JFrame {
         leftDockTabs.addTab("Tags", tagScroll);
         leftDockSection = new DockableSectionPanel("Library & Tags", leftDockTabs,
                 () -> leftDockSection.setVisible(false));
-        leftDockSection.setPreferredSize(new Dimension(245, 600));
+        leftDockSection.setPreferredSize(new Dimension(this.userConfig.getLeftDockWidth(), 600));
 
         DockableSectionPanel viewportSection = new DockableSectionPanel("Process Viewport", screenTabs, null);
 
         mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDockSection, viewportSection);
         mainSplit.setDividerSize(5);
-        mainSplit.setDividerLocation(245);
-        add(mainSplit, BorderLayout.CENTER);
+        mainSplit.setDividerLocation(this.userConfig.getLeftDockWidth());
 
-        JPanel bottomStack = new JPanel(new BorderLayout());
-        bottomStack.add(alarmBanner, BorderLayout.NORTH);
-        JPanel statusBar = new JPanel(new BorderLayout());
-        statusBar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(0xB8, 0xBE, 0xC6)));
-        statusBar.add(statusLabel, BorderLayout.WEST);
-        bottomStack.add(statusBar, BorderLayout.SOUTH);
-        add(bottomStack, BorderLayout.SOUTH);
+        JPanel workspacePanel = new JPanel(new BorderLayout());
+        workspacePanel.add(topBarHost, BorderLayout.NORTH);
+        workspacePanel.add(mainSplit, BorderLayout.CENTER);
 
-        this.runtimeSyncTimer = new Timer(250, e -> onRuntimeTick());
+        rootCardPanel.add(homeScreenPanel, CARD_HOME);
+        rootCardPanel.add(workspacePanel, CARD_WORKSPACE);
+        add(rootCardPanel, BorderLayout.CENTER);
+
+        this.runtimeSyncTimer = new Timer(this.userConfig.getRuntimeSyncIntervalMs(), e -> onRuntimeTick());
         this.runtimeSyncTimer.start();
 
-        loadProjectIntoUi(this.project);
-        updateSimUiState(SimState.STOPPED);
-        if (startInOperatorMode) {
-            setOperatorMode(true);
-            onSimPlay();
+        screenTabs.addChangeListener(e -> syncViewMenuWithActiveCanvas());
+
+        if (this.projectOpen) {
+            loadProjectIntoUi(this.project);
+            updateSimUiState(SimState.STOPPED);
+            if (startInOperatorMode) {
+                setOperatorMode(true);
+                if (this.userConfig.isAutoStartSimulationInOperatorMode()) {
+                    onSimPlay();
+                }
+            }
+        } else {
+            showHomeScreen();
         }
     }
 
     private void onRuntimeTick() {
+        if (!projectOpen) {
+            return;
+        }
+        if (isMaraflowSimMode()) {
+            pollMaraflowSimAsync();
+            return;
+        }
         if (currentSimState == SimState.RUNNING) {
             tagProvider.syncAll(project);
             alarmEngine.evaluate(project, System.currentTimeMillis());
@@ -186,31 +274,91 @@ public class MaraviewWindow extends JFrame {
         updateConnectionBadge();
     }
 
+    private boolean isMaraflowSimMode() {
+        return project != null
+                && project.getCommSettings() != null
+                && project.getCommSettings().getMode() == CommSettings.Mode.MARAFLOW_SIM;
+    }
+
+    private void pollMaraflowSimAsync() {
+        if (!simPollInFlight.compareAndSet(false, true)) {
+            return;
+        }
+        final ScadaProject snapshotProject = this.project;
+        simPollExecutor.submit(() -> {
+            try {
+                MaraflowSimClient.SimStatus status = maraflowSimClient.refreshStatus();
+                if (status.online() && snapshotProject != null) {
+                    tagProvider.syncAll(snapshotProject);
+                }
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        if (snapshotProject == this.project && status.online()) {
+                            SimState mapped = mapRemoteSimState(status.simState());
+                            if (mapped != currentSimState) {
+                                updateSimUiState(mapped);
+                            }
+                            alarmEngine.evaluate(project, System.currentTimeMillis());
+                            refreshTagTable();
+                            repaintActiveCanvas();
+                        }
+                        alarmBanner.refresh(System.currentTimeMillis());
+                        updateConnectionBadge();
+                    } finally {
+                        simPollInFlight.set(false);
+                    }
+                });
+            } catch (Exception ex) {
+                simPollInFlight.set(false);
+            }
+        });
+    }
+
+    private static SimState mapRemoteSimState(String remoteState) {
+        if (remoteState == null) return SimState.STOPPED;
+        return switch (remoteState.toUpperCase()) {
+            case "RUNNING", "WATCH_MODE" -> SimState.RUNNING;
+            case "PAUSED" -> SimState.PAUSED;
+            default -> SimState.STOPPED;
+        };
+    }
+
     private JMenuBar buildMenuBar() {
         int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
         JMenuBar bar = new JMenuBar();
 
         JMenu fileMenu = new JMenu("File");
         JMenuItem newItem = new JMenuItem("New Project");
-        newItem.addActionListener(e -> loadProjectIntoUi(new ScadaProject()));
+        newItem.addActionListener(e -> onNewProject());
         JMenuItem openItem = new JMenuItem("Open .msl...");
         openItem.addActionListener(e -> onOpenMsl());
+        recentMenu = new JMenu("Open Recent");
+        rebuildRecentMenu();
         JMenuItem saveItem = new JMenuItem("Save");
+        saveItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, menuMask));
         saveItem.addActionListener(e -> onSaveMsl(false));
         JMenuItem saveAsItem = new JMenuItem("Save As...");
         saveAsItem.addActionListener(e -> onSaveMsl(true));
+        JMenuItem projectSettingsItem = new JMenuItem("Project & Comm Settings...");
+        projectSettingsItem.addActionListener(e -> onProjectSettings());
         JMenuItem linkMflItem = new JMenuItem("Link .mfl Project...");
         linkMflItem.addActionListener(e -> onLinkMfl());
-        JMenuItem exitItem = new JMenuItem("Exit");
-        exitItem.addActionListener(e -> {
-            disposeAllCanvases();
-            dispose();
+        JMenuItem closeProjItem = new JMenuItem("Close Project");
+        closeProjItem.addActionListener(e -> {
+            if (confirmDiscardUnsavedChanges()) {
+                showHomeScreen();
+            }
         });
+        JMenuItem exitItem = new JMenuItem("Exit");
+        exitItem.addActionListener(e -> attemptExit());
         fileMenu.add(newItem);
         fileMenu.add(openItem);
+        fileMenu.add(recentMenu);
+        fileMenu.add(closeProjItem);
         fileMenu.add(saveItem);
         fileMenu.add(saveAsItem);
         fileMenu.addSeparator();
+        fileMenu.add(projectSettingsItem);
         fileMenu.add(linkMflItem);
         fileMenu.addSeparator();
         fileMenu.add(exitItem);
@@ -248,6 +396,9 @@ public class MaraviewWindow extends JFrame {
             ScadaCanvas c = getActiveCanvas();
             if (c != null) c.deleteSelection();
         });
+        JMenuItem prefsItem = new JMenuItem("Preferences...");
+        prefsItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, menuMask));
+        prefsItem.addActionListener(e -> onOpenPreferences());
         editMenu.add(undoItem);
         editMenu.add(redoItem);
         editMenu.addSeparator();
@@ -256,6 +407,8 @@ public class MaraviewWindow extends JFrame {
         editMenu.addSeparator();
         editMenu.add(rotItem);
         editMenu.add(delItem);
+        editMenu.addSeparator();
+        editMenu.add(prefsItem);
 
         JMenu viewMenu = new JMenu("View");
         JMenuItem zoomInItem = new JMenuItem("Zoom In");
@@ -270,29 +423,128 @@ public class MaraviewWindow extends JFrame {
                 zoomLabel.setText(" 100% ");
             }
         });
+        viewGridItem = new JCheckBoxMenuItem("Show Grid Dots", userConfig.isShowGridByDefault());
+        viewGridItem.addActionListener(e -> {
+            ScadaCanvas c = getActiveCanvas();
+            if (c != null && c.getScreen() != null) {
+                c.getScreen().setShowGrid(viewGridItem.isSelected());
+                project.setDirty(true);
+                c.repaint();
+            }
+        });
+        viewFlowItem = new JCheckBoxMenuItem("Animate Pipe Flow", userConfig.isShowFlowAnimation());
+        viewFlowItem.addActionListener(e -> {
+            userConfig.setShowFlowAnimation(viewFlowItem.isSelected());
+            for (int i = 0; i < screenTabs.getTabCount(); i++) {
+                if (screenTabs.getComponentAt(i) instanceof JScrollPane sp
+                        && sp.getViewport().getView() instanceof ScadaCanvas c) {
+                    c.setShowFlowAnimation(viewFlowItem.isSelected());
+                }
+            }
+            saveUserConfigQuietly();
+        });
+        viewStatusBarItem = new JCheckBoxMenuItem("Show Status Bar", userConfig.isShowStatusBar());
+        viewStatusBarItem.addActionListener(e -> {
+            userConfig.setShowStatusBar(viewStatusBarItem.isSelected());
+            if (statusBar != null) {
+                statusBar.setVisible(userConfig.isShowStatusBar());
+            }
+            saveUserConfigQuietly();
+        });
+        viewAlarmBannerItem = new JCheckBoxMenuItem("Show Alarm Banner", userConfig.isShowAlarmBanner());
+        viewAlarmBannerItem.addActionListener(e -> {
+            userConfig.setShowAlarmBanner(viewAlarmBannerItem.isSelected());
+            alarmBanner.setVisible(userConfig.isShowAlarmBanner());
+            saveUserConfigQuietly();
+        });
         viewMenu.add(zoomInItem);
         viewMenu.add(zoomOutItem);
         viewMenu.add(zoom100Item);
+        viewMenu.addSeparator();
+        viewMenu.add(viewGridItem);
+        viewMenu.add(viewFlowItem);
 
         JMenu screenMenu = new JMenu("Screen");
         JMenuItem addScreenItem = new JMenuItem("Add Screen...");
         addScreenItem.addActionListener(e -> onAddScreen());
+        JMenuItem screenPropsItem = new JMenuItem("Screen Properties...");
+        screenPropsItem.addActionListener(e -> onScreenProperties());
+        JMenuItem deleteScreenItem = new JMenuItem("Delete Current Screen");
+        deleteScreenItem.addActionListener(e -> onDeleteCurrentScreen());
         screenMenu.add(addScreenItem);
+        screenMenu.add(screenPropsItem);
+        screenMenu.addSeparator();
+        screenMenu.add(deleteScreenItem);
 
         JMenu tagsMenu = new JMenu("Tags");
         JMenuItem importTagsItem = new JMenuItem("Import from Linked .mfl...");
         importTagsItem.addActionListener(e -> onLinkMfl());
+        JMenuItem commSettingsItem = new JMenuItem("Communication Settings...");
+        commSettingsItem.addActionListener(e -> onCommSettings());
         tagsMenu.add(importTagsItem);
+        tagsMenu.addSeparator();
+        tagsMenu.add(commSettingsItem);
+
+        JMenu simMenu = new JMenu("Simulation");
+        simInternalItem = new JRadioButtonMenuItem("Internal Simulator", true);
+        simInternalItem.addActionListener(e -> {
+            if (project != null) {
+                project.getCommSettings().setMode(CommSettings.Mode.INTERNAL_SIM);
+                project.setDirty(true);
+                applyCommunicationSettings();
+                statusLabel.setText(" Switched to Internal Simulator");
+            }
+        });
+        simMaraflowItem = new JRadioButtonMenuItem("Maraflow Simulator (Live)", false);
+        simMaraflowItem.addActionListener(e -> {
+            if (project != null) {
+                CommSettings comm = project.getCommSettings();
+                comm.setMode(CommSettings.Mode.MARAFLOW_SIM);
+                if (comm.getTcpPort() == 502) {
+                    comm.setTcpPort(CommSettings.DEFAULT_MARAFLOW_SIM_PORT);
+                }
+                project.setDirty(true);
+                applyCommunicationSettings();
+                statusLabel.setText(" Switched to Maraflow Simulator (" + comm.getHost() + ":" + comm.getTcpPort() + ")");
+            }
+        });
+        ButtonGroup simSourceGroup = new ButtonGroup();
+        simSourceGroup.add(simInternalItem);
+        simSourceGroup.add(simMaraflowItem);
+        JMenuItem simPlayItem = new JMenuItem("Start / Play");
+        simPlayItem.addActionListener(e -> onSimPlay());
+        JMenuItem simPauseItem = new JMenuItem("Pause");
+        simPauseItem.addActionListener(e -> onSimPause());
+        JMenuItem simStopItem = new JMenuItem("Stop");
+        simStopItem.addActionListener(e -> onSimStop());
+        JMenuItem simCommItem = new JMenuItem("Simulator & Comm Settings...");
+        simCommItem.addActionListener(e -> onCommSettings());
+        simMenu.add(simInternalItem);
+        simMenu.add(simMaraflowItem);
+        simMenu.addSeparator();
+        simMenu.add(simPlayItem);
+        simMenu.add(simPauseItem);
+        simMenu.add(simStopItem);
+        simMenu.addSeparator();
+        simMenu.add(simCommItem);
 
         JMenu windowMenu = new JMenu("Window");
+        JMenuItem homeItem = new JMenuItem("Home Screen");
+        homeItem.addActionListener(e -> {
+            if (confirmDiscardUnsavedChanges()) {
+                showHomeScreen();
+            }
+        });
         JMenuItem showLibItem = new JMenuItem("Show Library & Tags");
         showLibItem.addActionListener(e -> {
             leftDockSection.setVisible(true);
-            mainSplit.setDividerLocation(245);
+            mainSplit.setDividerLocation(userConfig.getLeftDockWidth());
         });
         JMenuItem opItem = new JMenuItem("Toggle Operator Mode");
         opItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F5, 0));
         opItem.addActionListener(e -> setOperatorMode(!operatorMode));
+        windowMenu.add(homeItem);
+        windowMenu.addSeparator();
         windowMenu.add(showLibItem);
         windowMenu.add(opItem);
 
@@ -308,6 +560,7 @@ public class MaraviewWindow extends JFrame {
         bar.add(viewMenu);
         bar.add(screenMenu);
         bar.add(tagsMenu);
+        bar.add(simMenu);
         bar.add(windowMenu);
         bar.add(helpMenu);
         return bar;
@@ -413,6 +666,9 @@ public class MaraviewWindow extends JFrame {
         JButton linkMflBtn = createActionBtn(ScadaVectorIcons.linkMfl(), "Link Maraflow .mfl Project");
         linkMflBtn.addActionListener(e -> onLinkMfl());
 
+        JButton prefsBtn = createActionBtn(ScadaVectorIcons.settingsIcon(), "User Preferences (Ctrl+, / Cmd+,)");
+        prefsBtn.addActionListener(e -> onOpenPreferences());
+
         tb.add(cursorBtn);
         tb.add(pipeBtn);
         addSplitter(tb);
@@ -441,6 +697,7 @@ public class MaraviewWindow extends JFrame {
         addSplitter(tb);
         tb.add(operatorModeBtn);
         tb.add(linkMflBtn);
+        tb.add(prefsBtn);
         return tb;
     }
 
@@ -467,6 +724,21 @@ public class MaraviewWindow extends JFrame {
     }
 
     public void onSimPlay() {
+        if (isMaraflowSimMode()) {
+            simPollExecutor.submit(() -> {
+                boolean ok = maraflowSimClient.startSimulation();
+                SwingUtilities.invokeLater(() -> {
+                    if (ok) {
+                        updateSimUiState(SimState.RUNNING);
+                        statusLabel.setText(" Maraflow Simulation Running");
+                    } else {
+                        statusLabel.setText(" Maraflow Simulator Offline (cannot start)");
+                    }
+                    updateConnectionBadge();
+                });
+            });
+            return;
+        }
         if (currentSimState == SimState.STOPPED) {
             restoreInitialTagValues();
         }
@@ -475,14 +747,47 @@ public class MaraviewWindow extends JFrame {
     }
 
     public void onSimPause() {
+        if (isMaraflowSimMode()) {
+            simPollExecutor.submit(() -> {
+                boolean ok = maraflowSimClient.pauseSimulation();
+                SwingUtilities.invokeLater(() -> {
+                    if (ok) {
+                        updateSimUiState(SimState.PAUSED);
+                        statusLabel.setText(" Maraflow Simulation Paused");
+                    }
+                    updateConnectionBadge();
+                });
+            });
+            return;
+        }
         updateSimUiState(SimState.PAUSED);
         statusLabel.setText(" Simulation Paused");
     }
 
     public void onSimStop() {
+        if (isMaraflowSimMode()) {
+            simPollExecutor.submit(() -> {
+                boolean ok = maraflowSimClient.stopSimulation();
+                if (ok && project != null) {
+                    tagProvider.syncAll(project);
+                }
+                SwingUtilities.invokeLater(() -> {
+                    if (ok) {
+                        updateSimUiState(SimState.STOPPED);
+                        refreshTagTable();
+                        repaintActiveCanvas();
+                        statusLabel.setText(" Maraflow Simulation Stopped");
+                    }
+                    updateConnectionBadge();
+                });
+            });
+            return;
+        }
         resetAllIoAndStates();
         updateSimUiState(SimState.STOPPED);
-        statusLabel.setText(" Simulation Stopped (All I/O Reset to 0)");
+        statusLabel.setText(userConfig.isResetIoOnSimStop()
+                ? " Simulation Stopped (All I/O Reset to 0)"
+                : " Simulation Stopped");
     }
 
     public void onSimStep() {
@@ -510,11 +815,15 @@ public class MaraviewWindow extends JFrame {
 
     private void resetAllIoAndStates() {
         if (project != null) {
-            for (ScadaTag tag : project.getTags().values()) {
-                tag.setRuntimeValue(0.0);
-                tag.setRuntimeQuality(TagQuality.GOOD);
+            if (userConfig.isResetIoOnSimStop()) {
+                for (ScadaTag tag : project.getTags().values()) {
+                    tag.setRuntimeValue(0.0);
+                    tag.setRuntimeQuality(TagQuality.GOOD);
+                }
             }
-            alarmEngine.acknowledgeAll();
+            if (userConfig.isAcknowledgeAlarmsOnSimStop()) {
+                alarmEngine.acknowledgeAll();
+            }
             alarmEngine.evaluate(project, System.currentTimeMillis());
         }
         refreshTagTable();
@@ -537,23 +846,82 @@ public class MaraviewWindow extends JFrame {
         }
     }
 
+    private void showHomeScreen() {
+        maraflowSimClient.disconnect();
+        this.projectOpen = false;
+        updateSimUiState(SimState.STOPPED);
+        if (operatorMode) {
+            setOperatorMode(false);
+        }
+        if (homeScreenPanel != null) {
+            homeScreenPanel.setRecentPaths(userConfig.getRecentProjects());
+        }
+        rootCardLayout.show(rootCardPanel, CARD_HOME);
+        setTitle("Maraview V" + ScadaProject.VERSION + " - SCADA Designer & Operator Runtime");
+        statusLabel.setText(" Ready");
+    }
+
     private void loadProjectIntoUi(ScadaProject newProject) {
         disposeAllCanvases();
         this.project = newProject;
+        this.projectOpen = true;
+        applyCommunicationSettings();
         screenTabs.removeAll();
         for (ScadaScreen screen : project.getScreens()) {
             addScreenTab(screen);
         }
         refreshTagTable();
         rebuildOperatorScreenButtons();
+        rootCardLayout.show(rootCardPanel, CARD_WORKSPACE);
         updateTitle();
+        if (runtimeSyncTimer != null && !runtimeSyncTimer.isRunning()) {
+            runtimeSyncTimer.start();
+        }
+    }
+
+    private void applyCommunicationSettings() {
+        if (project == null) return;
+        CommSettings comm = project.getCommSettings();
+        if (comm != null && comm.getMode() == CommSettings.Mode.MARAFLOW_SIM) {
+            maraflowSimClient.configure(comm.getHost(), comm.getTcpPort());
+            this.tagProvider = maraflowTagProvider;
+            if (runtimeSyncTimer != null) {
+                runtimeSyncTimer.setDelay(comm.getPollIntervalMs());
+            }
+        } else {
+            maraflowSimClient.disconnect();
+            this.tagProvider = internalTagProvider;
+            if (runtimeSyncTimer != null && userConfig != null) {
+                runtimeSyncTimer.setDelay(userConfig.getRuntimeSyncIntervalMs());
+            }
+        }
+        for (int i = 0; i < screenTabs.getTabCount(); i++) {
+            if (screenTabs.getComponentAt(i) instanceof JScrollPane sp
+                    && sp.getViewport().getView() instanceof ScadaCanvas c) {
+                c.setTagProvider(this.tagProvider);
+            }
+        }
+        if (simInternalItem != null && simMaraflowItem != null && comm != null) {
+            boolean mf = comm.getMode() == CommSettings.Mode.MARAFLOW_SIM;
+            simMaraflowItem.setSelected(mf);
+            simInternalItem.setSelected(!mf);
+        }
+        updateConnectionBadge();
     }
 
     private void addScreenTab(ScadaScreen screen) {
         ScadaCanvas canvas = new ScadaCanvas(project, screen);
+        canvas.applyUserConfig(userConfig);
+        canvas.setZoomPercent(userConfig.getDefaultZoomPercent());
         canvas.setTagProvider(tagProvider);
         canvas.setSimState(currentSimState);
         canvas.setOperatorMode(operatorMode);
+        canvas.setOnZoomChanged(() -> {
+            ScadaCanvas active = getActiveCanvas();
+            if (active == canvas) {
+                zoomLabel.setText(" " + canvas.getZoomPercent() + "% ");
+            }
+        });
         canvas.setOnStepCallback(() -> {
             updateSimUiState(canvas.getSimState());
             alarmEngine.evaluate(project, System.currentTimeMillis());
@@ -565,6 +933,7 @@ public class MaraviewWindow extends JFrame {
         scroll.getVerticalScrollBar().setUnitIncrement(20);
         scroll.getHorizontalScrollBar().setUnitIncrement(20);
         screenTabs.addTab(screen.getName(), scroll);
+        syncViewMenuWithActiveCanvas();
     }
 
     private void buildOperatorBar() {
@@ -604,14 +973,34 @@ public class MaraviewWindow extends JFrame {
 
     private void updateConnectionBadge() {
         boolean online = tagProvider.isConnected();
-        connStatusLabel.setText(online ? " ONLINE " : " OFFLINE ");
-        connStatusLabel.setBackground(online ? new Color(0x1E, 0x84, 0x49) : new Color(0xD9, 0x26, 0x26));
+        String text;
+        Color bg;
+        if (isMaraflowSimMode()) {
+            MaraflowSimClient.SimStatus st = maraflowSimClient.getLastStatus();
+            if (online && st.online()) {
+                if (st.eStopActive()) {
+                    text = " MARAFLOW SIM: E-STOP ";
+                    bg = new Color(0xD9, 0x26, 0x26);
+                } else if ("PAUSED".equalsIgnoreCase(st.simState())) {
+                    text = " MARAFLOW SIM: PAUSED ";
+                    bg = new Color(0xD6, 0x89, 0x10);
+                } else {
+                    text = " MARAFLOW SIM: " + st.simState() + " ";
+                    bg = new Color(0x1E, 0x84, 0x49);
+                }
+            } else {
+                text = " MARAFLOW SIM: OFFLINE ";
+                bg = new Color(0xD9, 0x26, 0x26);
+            }
+        } else {
+            text = online ? " INTERNAL SIM " : " OFFLINE ";
+            bg = online ? new Color(0x1E, 0x84, 0x49) : new Color(0xD9, 0x26, 0x26);
+        }
+        connStatusLabel.setText(text);
+        connStatusLabel.setBackground(bg);
     }
 
     private void disposeAllCanvases() {
-        if (runtimeSyncTimer != null) {
-            runtimeSyncTimer.stop();
-        }
         for (int i = 0; i < screenTabs.getTabCount(); i++) {
             if (screenTabs.getComponentAt(i) instanceof JScrollPane sp
                     && sp.getViewport().getView() instanceof ScadaCanvas c) {
@@ -657,7 +1046,9 @@ public class MaraviewWindow extends JFrame {
             getJMenuBar().setVisible(!opMode);
         }
         if (!opMode) {
-            mainSplit.setDividerLocation(245);
+            mainSplit.setDividerLocation(userConfig.getLeftDockWidth());
+        } else if (userConfig.isAutoStartSimulationInOperatorMode() && currentSimState != SimState.RUNNING) {
+            onSimPlay();
         }
         for (int i = 0; i < screenTabs.getTabCount(); i++) {
             if (screenTabs.getComponentAt(i) instanceof JScrollPane sp
@@ -684,10 +1075,32 @@ public class MaraviewWindow extends JFrame {
         }
     }
 
+    private void onNewProject() {
+        onNewProject(false);
+    }
+
+    private void onNewProject(boolean preselectMaraflowSim) {
+        if (!confirmDiscardUnsavedChanges()) return;
+        NewProjectWizardDialog wizard = new NewProjectWizardDialog(this, userConfig, preselectMaraflowSim);
+        wizard.setVisible(true);
+        ScadaProject created = wizard.getCreatedProject();
+        if (created != null) {
+            if (created.getProjectFile() != null) {
+                userConfig.addRecentProject(created.getProjectFile().getAbsolutePath());
+                rebuildRecentMenu();
+                saveUserConfigQuietly();
+            }
+            loadProjectIntoUi(created);
+            statusLabel.setText(" Created project " + created.getProjectName());
+        }
+    }
+
     private void onAddScreen() {
         String name = JOptionPane.showInputDialog(this, "Screen Name:", "Screen" + (project.getScreens().size() + 1));
         if (name == null || name.isBlank()) return;
         ScadaScreen screen = new ScadaScreen(name.trim());
+        screen.setBackgroundColorHex(userConfig.getDefaultScreenBackgroundHex());
+        screen.setShowGrid(userConfig.isShowGridByDefault());
         project.getScreens().add(screen);
         addScreenTab(screen);
         screenTabs.setSelectedIndex(screenTabs.getTabCount() - 1);
@@ -695,26 +1108,132 @@ public class MaraviewWindow extends JFrame {
         project.setDirty(true);
     }
 
-    private void onOpenMsl() {
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter("Maraview SCADA Project (*.msl)", "msl"));
-        if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            try {
-                ScadaProject loaded = MslProjectSerializer.loadProject(fc.getSelectedFile());
-                loadProjectIntoUi(loaded);
-                statusLabel.setText(" Opened " + fc.getSelectedFile().getName());
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "Failed to open .msl: " + ex.getMessage(),
-                        "Open Error", JOptionPane.ERROR_MESSAGE);
+    private void onScreenProperties() {
+        ScadaCanvas c = getActiveCanvas();
+        if (c == null || c.getScreen() == null) return;
+        int idx = screenTabs.getSelectedIndex();
+        if (ScreenPropertiesDialog.showDialog(this, c.getScreen())) {
+            if (idx >= 0) {
+                screenTabs.setTitleAt(idx, c.getScreen().getName());
             }
+            rebuildOperatorScreenButtons();
+            syncViewMenuWithActiveCanvas();
+            project.setDirty(true);
+            c.repaint();
+        }
+    }
+
+    private void onDeleteCurrentScreen() {
+        if (project == null || project.getScreens().size() <= 1) {
+            JOptionPane.showMessageDialog(this, "A project must contain at least one screen.",
+                    "Delete Screen", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int idx = screenTabs.getSelectedIndex();
+        if (idx < 0 || idx >= project.getScreens().size()) return;
+        ScadaScreen scr = project.getScreens().get(idx);
+        int res = JOptionPane.showConfirmDialog(this,
+                "Delete screen \"" + scr.getName() + "\"?",
+                "Delete Screen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (res != JOptionPane.YES_OPTION) return;
+        if (screenTabs.getComponentAt(idx) instanceof JScrollPane sp
+                && sp.getViewport().getView() instanceof ScadaCanvas c) {
+            c.dispose();
+        }
+        project.getScreens().remove(idx);
+        screenTabs.removeTabAt(idx);
+        rebuildOperatorScreenButtons();
+        syncViewMenuWithActiveCanvas();
+        project.setDirty(true);
+    }
+
+    private void onProjectSettings() {
+        if (ProjectSettingsDialog.showDialog(this, project, 0)) {
+            applyCommunicationSettings();
+            updateTitle();
+            statusLabel.setText(" Updated project & communication settings");
+        }
+    }
+
+    private void onCommSettings() {
+        if (ProjectSettingsDialog.showDialog(this, project, 1)) {
+            applyCommunicationSettings();
+            updateTitle();
+            statusLabel.setText(" Updated communication settings (" + project.getCommSettings().getMode() + ")");
+        }
+    }
+
+    private void onOpenPreferences() {
+        UserPreferencesDialog.showDialog(this, userConfig, this::applyUserConfig);
+    }
+
+    private void applyUserConfig(UserConfig updated) {
+        if (updated == null) return;
+        boolean lafChanged = updated.getTheme() != userConfig.getTheme()
+                || !updated.getUiFontFamily().equals(userConfig.getUiFontFamily())
+                || updated.getUiFontSize() != userConfig.getUiFontSize();
+        this.userConfig = updated;
+
+        if (lafChanged) {
+            Main.applyLookAndFeel(userConfig);
+            FlatLaf.updateUI();
+            SwingUtilities.updateComponentTreeUI(this);
+        }
+
+        runtimeSyncTimer.setDelay(userConfig.getRuntimeSyncIntervalMs());
+        alarmBanner.setVisible(userConfig.isShowAlarmBanner());
+        alarmBanner.setFlashEnabled(userConfig.isAlarmFlashEnabled());
+        if (statusBar != null) {
+            statusBar.setVisible(userConfig.isShowStatusBar());
+        }
+        leftDockSection.setPreferredSize(new Dimension(userConfig.getLeftDockWidth(), 600));
+        if (!operatorMode && leftDockSection.isVisible()) {
+            mainSplit.setDividerLocation(userConfig.getLeftDockWidth());
+        }
+
+        for (int i = 0; i < screenTabs.getTabCount(); i++) {
+            if (screenTabs.getComponentAt(i) instanceof JScrollPane sp
+                    && sp.getViewport().getView() instanceof ScadaCanvas c) {
+                c.applyUserConfig(userConfig);
+            }
+        }
+        syncViewMenuWithActiveCanvas();
+        rebuildRecentMenu();
+        saveUserConfigQuietly();
+        revalidate();
+        repaint();
+    }
+
+    private void onOpenMsl() {
+        if (!confirmDiscardUnsavedChanges()) return;
+        JFileChooser fc = createFileChooser("Maraview SCADA Project (*.msl)", "msl");
+        if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            openProjectFile(fc.getSelectedFile());
+        }
+    }
+
+    private void openProjectFile(File file) {
+        if (file == null) return;
+        try {
+            ScadaProject loaded = MslProjectSerializer.loadProject(file);
+            if (file.getParentFile() != null) {
+                userConfig.setLastOpenedDir(file.getParentFile().getAbsolutePath());
+            }
+            userConfig.addRecentProject(file.getAbsolutePath());
+            rebuildRecentMenu();
+            saveUserConfigQuietly();
+            loadProjectIntoUi(loaded);
+            statusLabel.setText(" Opened " + file.getName());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "Failed to open .msl: " + ex.getMessage(),
+                    "Open Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
     private void onSaveMsl(boolean saveAs) {
         File target = project.getProjectFile();
         if (saveAs || target == null) {
-            JFileChooser fc = new JFileChooser();
-            fc.setFileFilter(new FileNameExtensionFilter("Maraview SCADA Project (*.msl)", "msl"));
+            JFileChooser fc = createFileChooser("Maraview SCADA Project (*.msl)", "msl");
             if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
             target = fc.getSelectedFile();
             if (!target.getName().toLowerCase().endsWith(".msl")) {
@@ -723,6 +1242,12 @@ public class MaraviewWindow extends JFrame {
         }
         try {
             MslProjectSerializer.saveProject(project, target);
+            if (target.getParentFile() != null) {
+                userConfig.setLastOpenedDir(target.getParentFile().getAbsolutePath());
+            }
+            userConfig.addRecentProject(target.getAbsolutePath());
+            rebuildRecentMenu();
+            saveUserConfigQuietly();
             updateTitle();
             statusLabel.setText(" Saved " + target.getName());
         } catch (IOException ex) {
@@ -732,17 +1257,128 @@ public class MaraviewWindow extends JFrame {
     }
 
     private void onLinkMfl() {
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter("Maraflow PLC Project (*.mfl)", "mfl"));
+        JFileChooser fc = createFileChooser("Maraflow PLC Project (*.mfl)", "mfl");
         if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             try {
-                int count = MflTagImporter.importIntoProject(fc.getSelectedFile(), project);
+                File selected = fc.getSelectedFile();
+                if (selected.getParentFile() != null) {
+                    userConfig.setLastOpenedDir(selected.getParentFile().getAbsolutePath());
+                    saveUserConfigQuietly();
+                }
+                int count = MflTagImporter.importIntoProject(selected, project);
                 refreshTagTable();
-                statusLabel.setText(" Imported " + count + " tags from " + fc.getSelectedFile().getName());
+                statusLabel.setText(" Imported " + count + " tags from " + selected.getName());
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(this, "Failed to import .mfl: " + ex.getMessage(),
                         "Import Error", JOptionPane.ERROR_MESSAGE);
             }
+        }
+    }
+
+    private JFileChooser createFileChooser(String description, String ext) {
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new FileNameExtensionFilter(description, ext));
+        String dir = !userConfig.getLastOpenedDir().isBlank()
+                ? userConfig.getLastOpenedDir()
+                : userConfig.getDefaultProjectDir();
+        if (!dir.isBlank()) {
+            File f = new File(dir);
+            if (f.isDirectory()) {
+                fc.setCurrentDirectory(f);
+            }
+        }
+        return fc;
+    }
+
+    private void rebuildRecentMenu() {
+        if (recentMenu == null) return;
+        recentMenu.removeAll();
+        if (userConfig.getRecentProjects().isEmpty()) {
+            JMenuItem empty = new JMenuItem("(None)");
+            empty.setEnabled(false);
+            recentMenu.add(empty);
+            return;
+        }
+        for (String path : userConfig.getRecentProjects()) {
+            File f = new File(path);
+            JMenuItem item = new JMenuItem(f.getName() + " — " + path);
+            item.addActionListener(e -> {
+                if (!confirmDiscardUnsavedChanges()) return;
+                openProjectFile(f);
+            });
+            recentMenu.add(item);
+        }
+        recentMenu.addSeparator();
+        JMenuItem clearItem = new JMenuItem("Clear Recent Projects");
+        clearItem.addActionListener(e -> {
+            userConfig.clearRecentProjects();
+            rebuildRecentMenu();
+            saveUserConfigQuietly();
+        });
+        recentMenu.add(clearItem);
+    }
+
+    private void syncViewMenuWithActiveCanvas() {
+        ScadaCanvas c = getActiveCanvas();
+        if (c != null) {
+            zoomLabel.setText(" " + c.getZoomPercent() + "% ");
+            if (viewGridItem != null && c.getScreen() != null) {
+                viewGridItem.setSelected(c.getScreen().isShowGrid());
+            }
+        }
+        if (viewFlowItem != null) {
+            viewFlowItem.setSelected(userConfig.isShowFlowAnimation());
+        }
+        if (viewStatusBarItem != null) {
+            viewStatusBarItem.setSelected(userConfig.isShowStatusBar());
+        }
+        if (viewAlarmBannerItem != null) {
+            viewAlarmBannerItem.setSelected(userConfig.isShowAlarmBanner());
+        }
+    }
+
+    private boolean confirmDiscardUnsavedChanges() {
+        if (!projectOpen || !userConfig.isConfirmUnsavedChanges() || project == null || !project.isDirty()) {
+            return true;
+        }
+        int res = JOptionPane.showConfirmDialog(this,
+                "Project \"" + project.getProjectName() + "\" has unsaved changes. Save before continuing?",
+                "Unsaved Changes", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (res == JOptionPane.YES_OPTION) {
+            onSaveMsl(false);
+            return !project.isDirty();
+        }
+        return res == JOptionPane.NO_OPTION;
+    }
+
+    private void attemptExit() {
+        if (!confirmDiscardUnsavedChanges()) return;
+        if (userConfig.isRememberWindowBounds()) {
+            boolean maximized = (getExtendedState() & JFrame.MAXIMIZED_BOTH) != 0;
+            userConfig.setWindowMaximized(maximized);
+            if (!maximized) {
+                userConfig.setWindowWidth(getWidth());
+                userConfig.setWindowHeight(getHeight());
+            }
+            if (!operatorMode && leftDockSection.isVisible()) {
+                userConfig.setLeftDockWidth(mainSplit.getDividerLocation());
+            }
+        }
+        saveUserConfigQuietly();
+        if (runtimeSyncTimer != null) {
+            runtimeSyncTimer.stop();
+        }
+        simPollExecutor.shutdownNow();
+        maraflowSimClient.close();
+        disposeAllCanvases();
+        dispose();
+    }
+
+    private void saveUserConfigQuietly() {
+        try {
+            UserConfigStore.save(userConfig);
+        } catch (IOException ex) {
+            System.err.println("Failed to save user config: " + ex.getMessage());
         }
     }
 
@@ -759,170 +1395,12 @@ public class MaraviewWindow extends JFrame {
     }
 
     private void updateTitle() {
+        if (!projectOpen || project == null) {
+            setTitle("Maraview V" + ScadaProject.VERSION + " - SCADA Designer & Operator Runtime");
+            return;
+        }
         String path = (project.getProjectFile() != null) ? project.getProjectFile().getAbsolutePath() : "unsaved";
         String mode = operatorMode ? "[OPERATOR]" : "[DESIGN]";
         setTitle(project.getProjectName() + " (" + path + ") - Maraview V" + ScadaProject.VERSION + " " + mode);
-    }
-
-    private static ScadaProject createSampleProject() {
-        ScadaProject p = new ScadaProject();
-        p.setProjectName("WWTP_Municipal_COV");
-        p.setDescription("Municipal Wastewater Treatment Plant (ČOV) SCADA HMI");
-
-        addTag(p, "InfluentPump_Run", DataType.BOOL, "1", "");
-        addTag(p, "BarScreen_Run", DataType.BOOL, "1", "");
-        addTag(p, "Clarifier1_Run", DataType.BOOL, "1", "");
-        addTag(p, "Blower1_Run", DataType.BOOL, "1", "");
-        addTag(p, "Blower1_Speed", DataType.FLOAT, "78.0", "%");
-        addTag(p, "Aeration_Run", DataType.BOOL, "1", "");
-        addTag(p, "Clarifier2_Run", DataType.BOOL, "1", "");
-        addTag(p, "Uv_Run", DataType.BOOL, "1", "");
-        addTag(p, "Influent_Flow", DataType.FLOAT, "425.0", "m³/h");
-        addTag(p, "DO_Conc", DataType.FLOAT, "2.4", "mg/L");
-        addTag(p, "Effluent_Flow", DataType.FLOAT, "418.5", "m³/h");
-        addTag(p, "Digester_Temp", DataType.FLOAT, "37.4", "°C");
-        addTag(p, "Thickener_Run", DataType.BOOL, "1", "");
-        addTag(p, "Boiler_Run", DataType.BOOL, "1", "");
-
-        // Screen 1: Water Line (ČOV)
-        ScadaScreen waterLine = p.getScreens().getFirst();
-        waterLine.setName("Water Line (ČOV)");
-
-        // Graphical zone frames & titles
-        addZoneFrame(waterLine, "1. MECHANICAL PRE-TREATMENT", 2, 2, 46, 20, new Color(0xE3, 0xF2, 0xFD), new Color(0x15, 0x65, 0xC0));
-        addZoneFrame(waterLine, "2. BIOLOGICAL TREATMENT & AERATION", 50, 2, 48, 30, new Color(0xE8, 0xF5, 0xE9), new Color(0x2E, 0x7D, 0x32));
-        addZoneFrame(waterLine, "3. CLARIFICATION & UV DISINFECTION", 100, 2, 48, 20, new Color(0xE0, 0xF7, 0xFA), new Color(0x00, 0x83, 0x8F));
-        addZoneFrame(waterLine, "4. OPERATOR TELEMETRY & POWER FEED", 2, 24, 46, 16, new Color(0xFF, 0xF8, 0xE1), new Color(0xEF, 0x6C, 0x00));
-
-        // Equipment - Zone 1
-        ScadaSymbolInstance screwPump = SymbolCatalogTree.createDefaultInstance("ArchimedesScrewPump", "P-101 Screw", 4, 8);
-        screwPump.getTagBindings().put("RunTag", "InfluentPump_Run");
-        ScadaSymbolInstance barScreen = SymbolCatalogTree.createDefaultInstance("BarScreen", "SCR-101", 19, 8);
-        barScreen.getTagBindings().put("RunTag", "BarScreen_Run");
-        ScadaSymbolInstance grit = SymbolCatalogTree.createDefaultInstance("GritChamber", "GC-101", 34, 8);
-
-        // Equipment - Zone 2
-        ScadaSymbolInstance primClar = SymbolCatalogTree.createDefaultInstance("PrimaryClarifier", "CL-201", 53, 7);
-        primClar.getTagBindings().put("RunTag", "Clarifier1_Run");
-        ScadaSymbolInstance aeration = SymbolCatalogTree.createDefaultInstance("AerationBasin", "AT-201", 72, 8);
-        aeration.getTagBindings().put("RunTag", "Aeration_Run");
-        ScadaSymbolInstance blower = SymbolCatalogTree.createDefaultInstance("AirBlower", "BL-201", 75, 23);
-        blower.getTagBindings().put("RunTag", "Blower1_Run");
-        blower.getTagBindings().put("SpeedTag", "Blower1_Speed");
-        ScadaSymbolInstance vfd = SymbolCatalogTree.createDefaultInstance("VfdDrive", "VFD-201", 60, 22);
-        vfd.getTagBindings().put("RunTag", "Blower1_Run");
-        vfd.getTagBindings().put("SpeedTag", "Blower1_Speed");
-
-        // Equipment - Zone 3
-        ScadaSymbolInstance secClar = SymbolCatalogTree.createDefaultInstance("SecondaryClarifier", "CL-301", 103, 7);
-        secClar.getTagBindings().put("RunTag", "Clarifier2_Run");
-        ScadaSymbolInstance uv = SymbolCatalogTree.createDefaultInstance("UvDisinfection", "UV-301", 121, 9);
-        uv.getTagBindings().put("RunTag", "Uv_Run");
-        ScadaSymbolInstance flowOut = SymbolCatalogTree.createDefaultInstance("FlowMeter", "FIT-301", 137, 9);
-        flowOut.getTagBindings().put("ValueTag", "Effluent_Flow");
-
-        // Equipment - Zone 4 (Power + Readouts + Controls)
-        ScadaSymbolInstance pwr400 = SymbolCatalogTree.createDefaultInstance("PowerSource400V", "MCC-400V", 4, 29);
-        pwr400.getTagBindings().put("RunTag", "Blower1_Run");
-        ScadaSymbolInstance roIn = SymbolCatalogTree.createDefaultInstance("NumericReadout", "Influent m³/h", 14, 28);
-        roIn.getTagBindings().put("ValueTag", "Influent_Flow");
-        ScadaSymbolInstance roDo = SymbolCatalogTree.createDefaultInstance("NumericReadout", "O2 mg/L", 25, 28);
-        roDo.getTagBindings().put("ValueTag", "DO_Conc");
-        ScadaSymbolInstance roOut = SymbolCatalogTree.createDefaultInstance("NumericReadout", "Effluent m³/h", 36, 28);
-        roOut.getTagBindings().put("ValueTag", "Effluent_Flow");
-        ScadaSymbolInstance btnStart = SymbolCatalogTree.createDefaultInstance("PushButton", "AUTO START", 14, 34);
-        btnStart.getTagBindings().put("RunTag", "InfluentPump_Run");
-        ScadaSymbolInstance lampRun = SymbolCatalogTree.createDefaultInstance("PilotLamp", "PLANT RUN", 22, 34);
-        lampRun.getTagBindings().put("RunTag", "InfluentPump_Run");
-
-        for (ScadaSymbolInstance sym : java.util.List.of(
-                screwPump, barScreen, grit, primClar, aeration, blower, vfd,
-                secClar, uv, flowOut, pwr400, roIn, roDo, roOut, btnStart, lampRun)) {
-            waterLine.getSymbols().add(sym);
-        }
-
-        // Fluid Pipes
-        connect(waterLine, screwPump, "out", barScreen, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
-        connect(waterLine, barScreen, "out", grit, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
-        connect(waterLine, grit, "out", primClar, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
-        connect(waterLine, primClar, "out", aeration, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
-        connect(waterLine, aeration, "out", secClar, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
-        connect(waterLine, secClar, "out", uv, "in", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.LARGE);
-        connect(waterLine, uv, "out", flowOut, "inlet", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.MEDIUM);
-
-        // Air supply pipe from Blower -> Aeration Basin
-        connect(waterLine, blower, "air_out", aeration, "air", ConnectionType.PIPE, FluidType.WATER, PipeDiameter.MEDIUM);
-
-        // Electrical Power Cables (400V MCC -> VFD -> Blower)
-        connect(waterLine, pwr400, "out", vfd, "in", ConnectionType.ELECTRICAL_POWER, FluidType.EMPTY, PipeDiameter.SMALL);
-        connect(waterLine, vfd, "out", blower, "pwr", ConnectionType.ELECTRICAL_POWER, FluidType.EMPTY, PipeDiameter.SMALL);
-
-        // Screen 2: Sludge & Biogas
-        ScadaScreen sludgeLine = new ScadaScreen("Sludge & Biogas");
-        addZoneFrame(sludgeLine, "SLUDGE THICKENING & DEWATERING", 2, 2, 54, 24, new Color(0xEF, 0xEB, 0xE9), new Color(0x5D, 0x40, 0x37));
-        addZoneFrame(sludgeLine, "ANAEROBIC DIGESTION & BIOGAS HEATING", 58, 2, 52, 24, new Color(0xFF, 0xF3, 0xE0), new Color(0xE6, 0x51, 0x00));
-
-        ScadaSymbolInstance thickener = SymbolCatalogTree.createDefaultInstance("SludgeThickener", "THK-401", 6, 8);
-        thickener.getTagBindings().put("RunTag", "Thickener_Run");
-        ScadaSymbolInstance dosing = SymbolCatalogTree.createDefaultInstance("DosingStation", "DOS-401", 22, 16);
-        ScadaSymbolInstance press = SymbolCatalogTree.createDefaultInstance("FilterPress", "FP-401", 36, 9);
-        press.getTagBindings().put("RunTag", "Thickener_Run");
-
-        ScadaSymbolInstance digester = SymbolCatalogTree.createDefaultInstance("AnaerobicDigester", "DIG-501", 64, 7);
-        ScadaSymbolInstance boiler = SymbolCatalogTree.createDefaultInstance("Boiler", "BLR-501", 86, 8);
-        boiler.getTagBindings().put("RunTag", "Boiler_Run");
-        ScadaSymbolInstance digTemp = SymbolCatalogTree.createDefaultInstance("NumericReadout", "Digester °C", 74, 20);
-        digTemp.getTagBindings().put("ValueTag", "Digester_Temp");
-
-        for (ScadaSymbolInstance sym : java.util.List.of(thickener, dosing, press, digester, boiler, digTemp)) {
-            sludgeLine.getSymbols().add(sym);
-        }
-        connect(sludgeLine, thickener, "out", press, "in", ConnectionType.PIPE, FluidType.SLURRY, PipeDiameter.MEDIUM);
-        connect(sludgeLine, dosing, "out", press, "in", ConnectionType.PIPE, FluidType.CHEMICAL_GAS, PipeDiameter.SMALL);
-        connect(sludgeLine, digester, "gas", boiler, "gas", ConnectionType.PIPE, FluidType.CHEMICAL_GAS, PipeDiameter.MEDIUM);
-
-        p.getScreens().add(sludgeLine);
-        return p;
-    }
-
-    private static void addTag(ScadaProject p, String name, DataType dt, String initVal, String units) {
-        ScadaTag tag = new ScadaTag(name, dt, TagSourceType.INTERNAL);
-        tag.setInitialValue(initVal);
-        tag.setEngineeringUnits(units);
-        tag.resetRuntimeToInitial();
-        p.putTag(tag);
-    }
-
-    private static void addZoneFrame(ScadaScreen screen, String title, int gx, int gy, int gw, int gh,
-                                     Color fill, Color stroke) {
-        ScadaGraphicElement box = new ScadaGraphicElement(ScadaGraphicElement.Kind.ROUNDED_RECTANGLE, gx, gy, gw, gh);
-        box.setFilled(true);
-        box.setFillColor(fill);
-        box.setStrokeColor(stroke);
-        box.setStrokeWidth(1);
-        box.setDashed(true);
-        box.setOpacity(0.55);
-        screen.getGraphics().add(box);
-
-        ScadaGraphicElement label = new ScadaGraphicElement(ScadaGraphicElement.Kind.TEXT, gx + 1, gy + 1, gw - 2, 2);
-        label.setText(title);
-        label.setFontSize(11);
-        label.setStrokeColor(stroke);
-        screen.getGraphics().add(label);
-    }
-
-    private static void connect(ScadaScreen screen, ScadaSymbolInstance src, String srcPort,
-                                ScadaSymbolInstance dst, String dstPort,
-                                ConnectionType type, FluidType fluid, PipeDiameter dia) {
-        ScadaPipe pipe = new ScadaPipe();
-        pipe.setConnectionType(type);
-        pipe.setSourceSymbolId(src.getId());
-        pipe.setSourcePortId(srcPort);
-        pipe.setTargetSymbolId(dst.getId());
-        pipe.setTargetPortId(dstPort);
-        pipe.setFluidType(fluid);
-        pipe.setDiameter(dia);
-        pipe.setVertices(PipeRouter.route(src.resolveWorldPort(srcPort), dst.resolveWorldPort(dstPort)));
-        screen.getPipes().add(pipe);
     }
 }

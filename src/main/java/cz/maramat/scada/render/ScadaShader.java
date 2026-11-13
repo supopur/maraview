@@ -1,6 +1,7 @@
 package cz.maramat.scada.render;
 
 import cz.maramat.scada.model.CardinalDirection;
+import cz.maramat.scada.model.ConnectionType;
 import cz.maramat.scada.render.ScadaPalette.Material;
 
 import java.awt.BasicStroke;
@@ -180,6 +181,65 @@ public final class ScadaShader {
 
         g.setPaint(oldPaint);
         g.setStroke(oldStroke);
+    }
+
+    /**
+     * Paints a physical connection nozzle + flange (for PIPE ports) or terminal pin (for electrical/control ports)
+     * anchored flush at the symbol's local port coordinate (px, py) and extending inward toward the equipment body.
+     */
+    public static void paintPortNozzle(Graphics2D g, double px, double py, CardinalDirection outDir,
+                                       int gPx, ConnectionType connType) {
+        if (connType == ConnectionType.ELECTRICAL_POWER || connType == ConnectionType.CONTROL_SIGNAL) {
+            double pinLen = Math.max(4.0, gPx * 0.45);
+            double pinThick = Math.max(2.5, gPx * 0.28);
+            double x = switch (outDir) {
+                case WEST -> px;
+                case EAST -> px - pinLen;
+                default -> px - pinThick / 2.0;
+            };
+            double y = switch (outDir) {
+                case NORTH -> py;
+                case SOUTH -> py - pinLen;
+                default -> py - pinThick / 2.0;
+            };
+            double w = (outDir == CardinalDirection.WEST || outDir == CardinalDirection.EAST) ? pinLen : pinThick;
+            double h = (outDir == CardinalDirection.NORTH || outDir == CardinalDirection.SOUTH) ? pinLen : pinThick;
+            Color pinColor = (connType == ConnectionType.ELECTRICAL_POWER)
+                    ? new Color(210, 150, 50)
+                    : new Color(80, 165, 220);
+            Paint oldP = g.getPaint();
+            g.setColor(pinColor);
+            g.fill(new Rectangle2D.Double(x, y, w, h));
+            g.setColor(ScadaPalette.OUTLINE_DARK);
+            g.setStroke(STROKE_1PX);
+            g.draw(new Rectangle2D.Double(x, y, w, h));
+            g.setPaint(oldP);
+            return;
+        }
+
+        double stubLen = Math.max(10.0, gPx * 1.1);
+        double pipeDiam = Math.max(6.0, gPx * 0.68);
+        double flangeT = Math.max(3.5, gPx * 0.36);
+        double flangeSpan = pipeDiam + 5.0;
+
+        switch (outDir) {
+            case WEST -> {
+                paintCylinderH(g, px, py - pipeDiam / 2.0, stubLen, pipeDiam, Material.FLANGE_STEEL);
+                paintFlange(g, px + flangeT / 2.0, py, flangeSpan, flangeT, CardinalDirection.WEST);
+            }
+            case EAST -> {
+                paintCylinderH(g, px - stubLen, py - pipeDiam / 2.0, stubLen, pipeDiam, Material.FLANGE_STEEL);
+                paintFlange(g, px - flangeT / 2.0, py, flangeSpan, flangeT, CardinalDirection.EAST);
+            }
+            case NORTH -> {
+                paintCylinderV(g, px - pipeDiam / 2.0, py, pipeDiam, stubLen, Material.FLANGE_STEEL);
+                paintFlange(g, px, py + flangeT / 2.0, flangeSpan, flangeT, CardinalDirection.NORTH);
+            }
+            case SOUTH -> {
+                paintCylinderV(g, px - pipeDiam / 2.0, py - stubLen, pipeDiam, stubLen, Material.FLANGE_STEEL);
+                paintFlange(g, px, py - flangeT / 2.0, flangeSpan, flangeT, CardinalDirection.SOUTH);
+            }
+        }
     }
 
     /**

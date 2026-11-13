@@ -26,6 +26,7 @@ public class AlarmBannerPanel extends JPanel {
     private final JButton ackBtn = new JButton("Acknowledge");
     private final JButton ackAllBtn = new JButton("Ack All");
     private String topTagName = null;
+    private boolean flashEnabled = true;
 
     public AlarmBannerPanel(AlarmEngine alarmEngine) {
         this.alarmEngine = alarmEngine;
@@ -77,7 +78,7 @@ public class AlarmBannerPanel extends JPanel {
         AlarmEntry top = list.getFirst();
         topTagName = top.getTagName();
         boolean unack = !top.isAcknowledged();
-        boolean flashOn = EquipmentState.isFaultFlashOn(nowMs);
+        boolean flashOn = !flashEnabled || EquipmentState.isFaultFlashOn(nowMs);
 
         if (unack) {
             stateBadge.setText(" UNACK ");
@@ -91,5 +92,13 @@ public class AlarmBannerPanel extends JPanel {
                 + (list.size() > 1 ? " (+" + (list.size() - 1) + " more)" : ""));
         ackBtn.setEnabled(unack);
         ackAllBtn.setEnabled(alarmEngine.hasUnacknowledged());
+    }
+
+    public boolean isFlashEnabled() {
+        return flashEnabled;
+    }
+
+    public void setFlashEnabled(boolean flashEnabled) {
+        this.flashEnabled = flashEnabled;
     }
 }

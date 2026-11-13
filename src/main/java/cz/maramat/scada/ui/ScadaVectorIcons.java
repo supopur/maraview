@@ -298,4 +298,26 @@ public final class ScadaVectorIcons {
             g.drawRect(2, 2, 12, 12);
         });
     }
+
+    public static Icon settingsIcon() {
+        return icon((g, w, h) -> {
+            g.setColor(INK);
+            g.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            double cx = 8.0, cy = 8.0;
+            for (int i = 0; i < 8; i++) {
+                double ang = i * Math.PI / 4.0;
+                int x1 = (int) Math.round(cx + Math.cos(ang) * 4.2);
+                int y1 = (int) Math.round(cy + Math.sin(ang) * 4.2);
+                int x2 = (int) Math.round(cx + Math.cos(ang) * 6.3);
+                int y2 = (int) Math.round(cy + Math.sin(ang) * 6.3);
+                g.drawLine(x1, y1, x2, y2);
+            }
+            g.setColor(new Color(0xE8, 0xEE, 0xF5));
+            g.fillOval(4, 4, 8, 8);
+            g.setColor(INK);
+            g.setStroke(new BasicStroke(1.3f));
+            g.drawOval(4, 4, 8, 8);
+            g.fillOval(6, 6, 4, 4);
+        });
+    }
 }

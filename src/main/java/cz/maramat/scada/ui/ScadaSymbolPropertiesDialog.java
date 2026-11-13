@@ -47,6 +47,7 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
 
     // Domain-specific fields
     private JComboBox<FluidType> fluidCombo;
+    private JComboBox<String> buttonModeCombo;
     private JComboBox<String> voltageCombo;
     private JTextField ratedPowerField;
     private JTextField setpointField;
@@ -105,6 +106,14 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
                     setpointField = new JTextField(symbol.getProperties().getOrDefault("setpoint", "55.0"), 12);
                     addRow(leftPanel, lgbc, lr++, "Design Temp / SP:", setpointField);
                 }
+                if (isTankLikeSymbol(symbol.getSymbolType())) {
+                    minField = new JTextField(symbol.getProperties().getOrDefault("rangeMin",
+                            symbol.getProperties().getOrDefault("Min", "0")), 12);
+                    maxField = new JTextField(symbol.getProperties().getOrDefault("rangeMax",
+                            symbol.getProperties().getOrDefault("Max", "100")), 12);
+                    addRow(leftPanel, lgbc, lr++, "Min Level:", minField);
+                    addRow(leftPanel, lgbc, lr++, "Max Level:", maxField);
+                }
             }
             case ELECTRICAL -> {
                 voltageCombo = new JComboBox<>(new String[]{"24V DC", "24V AC", "230V AC", "400V 3~ AC", "690V 3~ AC"});
@@ -126,6 +135,12 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
                 addRow(leftPanel, lgbc, lr++, "Range Max:", maxField);
             }
             case OPERATOR_CONTROL -> {
+                if (symbol.getSymbolType().equals("PushButton") || symbol.getSymbolType().equals("EStopMushroom")) {
+                    buttonModeCombo = new JComboBox<>(new String[]{"Toggle", "Momentary"});
+                    String savedMode = symbol.getProperties().getOrDefault("ButtonMode", "Toggle");
+                    buttonModeCombo.setSelectedItem("Momentary".equalsIgnoreCase(savedMode) ? "Momentary" : "Toggle");
+                    addRow(leftPanel, lgbc, lr++, "Button Mode:", buttonModeCombo);
+                }
                 unitsField = new JTextField(symbol.getProperties().getOrDefault("EngineeringUnits", ""), 12);
                 minField = new JTextField(symbol.getProperties().getOrDefault("Min", "0"), 12);
                 maxField = new JTextField(symbol.getProperties().getOrDefault("Max", "100"), 12);
@@ -238,6 +253,9 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
             symbol.setProperty("fluidType", ft.name());
             symbol.setProperty("FluidType", ft.name());
         }
+        if (buttonModeCombo != null && buttonModeCombo.getSelectedItem() != null) {
+            symbol.setProperty("ButtonMode", String.valueOf(buttonModeCombo.getSelectedItem()));
+        }
         if (voltageCombo != null && voltageCombo.getSelectedItem() != null) {
             symbol.setProperty("voltage", String.valueOf(voltageCombo.getSelectedItem()).trim());
         }
@@ -270,6 +288,12 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         }
         confirmed = true;
         dispose();
+    }
+
+    private static boolean isTankLikeSymbol(String type) {
+        return type.contains("Tank") || type.equals("HopperSilo") || type.equals("OpenBasin")
+                || type.equals("PrimaryClarifier") || type.equals("AerationBasin")
+                || type.equals("AnaerobicDigester") || type.equals("SludgeThickener");
     }
 
     private static FluidType parseFluid(String raw) {

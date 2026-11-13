@@ -1,5 +1,6 @@
 package cz.maramat.scada.ui;
 
+import cz.maramat.scada.config.UserConfig;
 import cz.maramat.scada.model.ConnectionType;
 import cz.maramat.scada.model.GridPoint;
 import cz.maramat.scada.model.PipePort;
@@ -42,6 +43,7 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
@@ -105,9 +107,17 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     private ToolMode toolMode = ToolMode.CURSOR;
     private SimState simState = SimState.STOPPED;
     private boolean operatorMode = false;
+    private ScadaSymbolInstance activeMomentarySymbol;
     private boolean showFlowAnimation = true;
     private int zoomIndex = 3; // 100% -> 10px
+    private int canvasGridWidth = DEFAULT_CANVAS_GRID_W;
+    private int canvasGridHeight = DEFAULT_CANVAS_GRID_H;
+    private Color gridDotColor = new Color(0xCC, 0xCC, 0xCC);
+    private boolean antiAliasing = true;
+    private double flowAnimationSpeedPxPerSec = 36.0;
+    private boolean mouseWheelZoom = false;
     private Runnable onStepCallback;
+    private Runnable onZoomChanged;
 
     private static final List<ScadaSymbolInstance> clipboardSymbols = new ArrayList<>();
     private static final List<ScadaPipe> clipboardPipes = new ArrayList<>();
@@ -183,7 +193,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             double dt = Math.min(0.1, (now - lastTickNs) / 1_000_000_000.0);
             lastTickNs = now;
             if (simState == SimState.RUNNING && showFlowAnimation) {
-                flowDashPhasePx -= dt * 36.0;
+                flowDashPhasePx -= dt * flowAnimationSpeedPxPerSec;
                 simTimeMs += Math.round(dt * 1000.0);
                 repaint();
             }
@@ -301,6 +311,9 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     }
 
     public void setOperatorMode(boolean operatorMode) {
+        if (!operatorMode) {
+            releaseActiveMomentary();
+        }
         this.operatorMode = operatorMode;
         if (operatorMode) {
             selectedSymbolIds.clear();
@@ -317,6 +330,24 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     public void setShowFlowAnimation(boolean showFlowAnimation) {
         this.showFlowAnimation = showFlowAnimation;
         repaint();
+    }
+
+    public void applyUserConfig(UserConfig config) {
+        if (config == null) return;
+        this.canvasGridWidth = config.getCanvasGridWidth();
+        this.canvasGridHeight = config.getCanvasGridHeight();
+        this.gridDotColor = config.getGridDotColor();
+        this.antiAliasing = config.isAntiAliasing();
+        this.showFlowAnimation = config.isShowFlowAnimation();
+        this.flowAnimationSpeedPxPerSec = config.getFlowAnimationSpeedPxPerSec();
+        this.mouseWheelZoom = config.isMouseWheelZoom();
+        updatePreferredSize();
+        revalidate();
+        repaint();
+    }
+
+    public void setOnZoomChanged(Runnable onZoomChanged) {
+        this.onZoomChanged = onZoomChanged;
     }
 
     public SimState getSimState() {
@@ -383,6 +414,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             updatePreferredSize();
             revalidate();
             repaint();
+            if (onZoomChanged != null) onZoomChanged.run();
         }
     }
 
@@ -392,6 +424,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             updatePreferredSize();
             revalidate();
             repaint();
+            if (onZoomChanged != null) onZoomChanged.run();
         }
     }
 
@@ -487,7 +520,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
 
     private void updatePreferredSize() {
         int g = getGridSizePx();
-        setPreferredSize(new Dimension(DEFAULT_CANVAS_GRID_W * g, DEFAULT_CANVAS_GRID_H * g));
+        setPreferredSize(new Dimension(canvasGridWidth * g, canvasGridHeight * g));
     }
 
     private void markDirty() {
@@ -501,7 +534,8 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         super.paintComponent(gRaw);
         Graphics2D g = (Graphics2D) gRaw.create();
         try {
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    antiAliasing ? RenderingHints.VALUE_ANTIALIAS_ON : RenderingHints.VALUE_ANTIALIAS_OFF);
             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
 
             int gPx = getGridSizePx();
@@ -568,7 +602,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 }
             }
 
-            // 3. Port snap highlight box (1G x 1G)
+            // 3. Port snap highlight box (1G x 1G) + pin name pill
             if (!operatorMode && hoveredPort != null) {
                 GridPoint pos = hoveredPort.worldPort().position();
                 int hx = pos.x() * gPx - gPx / 2;
@@ -578,6 +612,29 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 g.setColor(new Color(0x00, 0x78, 0xD7));
                 g.setStroke(new BasicStroke(1.5f));
                 g.drawRect(hx, hy, gPx, gPx);
+
+                String pinName = hoveredPort.port().label();
+                if (pinName == null || pinName.isBlank()) {
+                    pinName = hoveredPort.port().id();
+                }
+                if (pinName != null && !pinName.isBlank()) {
+                    Font oldFont = g.getFont();
+                    g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+                    FontMetrics fm = g.getFontMetrics();
+                    int padX = 6;
+                    int boxW = fm.stringWidth(pinName) + padX * 2;
+                    int boxH = fm.getHeight() + 4;
+                    int lx = hx + gPx + 6;
+                    int ly = hy + (gPx - boxH) / 2;
+                    g.setColor(new Color(28, 34, 42, 230));
+                    g.fillRoundRect(lx, ly, boxW, boxH, 6, 6);
+                    g.setColor(new Color(0x52, 0xA8, 0xFF));
+                    g.setStroke(new BasicStroke(1.0f));
+                    g.drawRoundRect(lx, ly, boxW, boxH, 6, 6);
+                    g.setColor(Color.WHITE);
+                    g.drawString(pinName, lx + padX, ly + fm.getAscent() + 2);
+                    g.setFont(oldFont);
+                }
             }
 
             // 4. Rubber-band pipe preview
@@ -614,7 +671,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         int startY = (clip.y / gPx) * gPx;
         int endX = clip.x + clip.width;
         int endY = clip.y + clip.height;
-        g.setColor(new Color(0xCC, 0xCC, 0xCC));
+        g.setColor(gridDotColor);
         for (int y = startY; y <= endY; y += gPx) {
             for (int x = startX; x <= endX; x += gPx) {
                 g.fillRect(x, y, 1, 1);
@@ -739,7 +796,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                         int gPx = getGridSizePx();
                         ScadaSymbolInstance hit = hitTestSymbol(e.getX() / (double) gPx, e.getY() / (double) gPx);
                         if (hit != null) {
-                            handleOperatorClick(hit);
+                            handleOperatorPress(hit);
                         }
                     }
                     return;
@@ -942,13 +999,6 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     return;
                 }
                 if (operatorMode) {
-                    if (SwingUtilities.isLeftMouseButton(e) && screen != null) {
-                        int gPx = getGridSizePx();
-                        ScadaSymbolInstance hit = hitTestSymbol(e.getX() / (double) gPx, e.getY() / (double) gPx);
-                        if (hit != null) {
-                            handleOperatorClick(hit);
-                        }
-                    }
                     return;
                 }
                 if (screen == null) return;
@@ -1156,12 +1206,8 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     return;
                 }
                 if (operatorMode) {
-                    if (SwingUtilities.isLeftMouseButton(e) && screen != null) {
-                        int gPx = getGridSizePx();
-                        ScadaSymbolInstance hit = hitTestSymbol(e.getX() / (double) gPx, e.getY() / (double) gPx);
-                        if (hit != null) {
-                            handleOperatorClick(hit);
-                        }
+                    if (SwingUtilities.isLeftMouseButton(e)) {
+                        releaseActiveMomentary();
                     }
                     return;
                 }
@@ -1294,6 +1340,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 double gx = e.getX() / (double) gPx;
                 double gy = e.getY() / (double) gPx;
                 if (operatorMode) {
+                    setToolTipText(null);
                     ScadaSymbolInstance hit = hitTestSymbol(gx, gy);
                     setCursor(hit != null && isOperatorInteractive(hit.getSymbolType())
                             ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
@@ -1308,9 +1355,13 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 }
 
                 if (hoveredPort != null) {
+                    String label = hoveredPort.port().label();
+                    String id = hoveredPort.port().id();
+                    setToolTipText((label != null && !label.isBlank()) ? label + " (" + id + ")" : id);
                     setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
                     return;
                 }
+                setToolTipText(null);
 
                 hoveredPipeSeg = PipeEdgeDragController.hitTest(screen.getPipes(), gx, gy, 0.65);
                 if (hoveredPipeSeg != null && toolMode == ToolMode.CURSOR) {
@@ -1323,6 +1374,19 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         };
         addMouseListener(adapter);
         addMouseMotionListener(adapter);
+        addMouseWheelListener(e -> {
+            boolean shortcut = (e.getModifiersEx() & (java.awt.event.InputEvent.CTRL_DOWN_MASK | java.awt.event.InputEvent.META_DOWN_MASK)) != 0;
+            if (mouseWheelZoom || shortcut) {
+                if (e.getWheelRotation() < 0) {
+                    zoomIn();
+                } else if (e.getWheelRotation() > 0) {
+                    zoomOut();
+                }
+                e.consume();
+            } else if (getParent() != null && getParent().getParent() != null) {
+                getParent().getParent().dispatchEvent(e);
+            }
+        });
     }
 
     private void showContextMenu(MouseEvent e) {
@@ -1798,7 +1862,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         }
     }
 
-    private void handleOperatorClick(ScadaSymbolInstance sym) {
+    private void handleOperatorPress(ScadaSymbolInstance sym) {
         if (project == null || tagProvider == null) return;
         String type = sym.getSymbolType();
         String targetTag = resolveWriteTag(sym);
@@ -1806,7 +1870,17 @@ public class ScadaCanvas extends JComponent implements Scrollable {
 
         double cur = tagProvider.readTag(project, targetTag);
         switch (type) {
-            case "PushButton", "EStopMushroom", "SolenoidValve", "HandValve" -> {
+            case "PushButton", "EStopMushroom" -> {
+                String mode = sym.getProperties().getOrDefault("ButtonMode", "Toggle");
+                if ("Momentary".equalsIgnoreCase(mode)) {
+                    tagProvider.writeTag(project, targetTag, 1.0);
+                    activeMomentarySymbol = sym;
+                } else {
+                    tagProvider.writeTag(project, targetTag, (cur != 0.0) ? 0.0 : 1.0);
+                }
+                repaint();
+            }
+            case "SolenoidValve", "HandValve" -> {
                 tagProvider.writeTag(project, targetTag, (cur != 0.0) ? 0.0 : 1.0);
                 repaint();
             }
@@ -1829,6 +1903,18 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             }
             default -> {
             }
+        }
+    }
+
+    private void releaseActiveMomentary() {
+        if (activeMomentarySymbol == null) return;
+        ScadaSymbolInstance sym = activeMomentarySymbol;
+        activeMomentarySymbol = null;
+        if (project == null || tagProvider == null) return;
+        String targetTag = resolveWriteTag(sym);
+        if (targetTag != null && !targetTag.isBlank()) {
+            tagProvider.writeTag(project, targetTag, 0.0);
+            repaint();
         }
     }
 

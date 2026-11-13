@@ -1,6 +1,11 @@
 package cz.maramat;
 
+import com.formdev.flatlaf.FlatDarculaLaf;
+import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.FlatIntelliJLaf;
 import com.formdev.flatlaf.FlatLightLaf;
+import cz.maramat.scada.config.UserConfig;
+import cz.maramat.scada.config.UserConfigStore;
 import cz.maramat.scada.io.MslProjectSerializer;
 import cz.maramat.scada.model.ScadaProject;
 import cz.maramat.scada.ui.MaraviewWindow;
@@ -32,38 +37,66 @@ public class Main {
         final File fileFinal = projectFile;
 
         SwingUtilities.invokeLater(() -> {
-            FlatLightLaf.setup();
+            UserConfig userConfig = UserConfigStore.load();
+            applyLookAndFeel(userConfig);
 
-            // Utilitarian Win95 / Win7 crossover CAD / PLC engineering look-and-feel (matching MaraFlow)
-            UIManager.put("Component.arrowType", "triangle");
-            UIManager.put("Button.arc", 0);
-            UIManager.put("Component.arc", 0);
-            UIManager.put("CheckBox.arc", 0);
-            UIManager.put("ProgressBar.arc", 0);
-            UIManager.put("TextComponent.arc", 0);
-            UIManager.put("ScrollBar.width", 14);
-            UIManager.put("ScrollBar.showButtons", true);
-            UIManager.put("TabbedPane.tabHeight", 22);
-            UIManager.put("TabbedPane.showTabSeparators", true);
-            UIManager.put("TabbedPane.tabInsets", new Insets(2, 8, 2, 8));
-            UIManager.put("TabbedPane.selectedBackground", Color.WHITE);
-            UIManager.put("Tree.paintLines", true);
-            UIManager.put("Tree.lineTypeDashed", true);
-            UIManager.put("Tree.hash", new Color(0x90, 0x90, 0x90));
-            UIManager.put("Table.showHorizontalLines", true);
-            UIManager.put("Table.showVerticalLines", true);
-            UIManager.put("defaultFont", new Font("Segoe UI", Font.PLAIN, 11));
-
-            ScadaProject project = null;
-            if (fileFinal != null && fileFinal.isFile()) {
-                try {
-                    project = MslProjectSerializer.loadProject(fileFinal);
-                } catch (IOException ex) {
-                    System.err.println("Failed to load project " + fileFinal + ": " + ex.getMessage());
+            File toLoad = fileFinal;
+            if (toLoad == null && userConfig.isReopenLastProjectOnStartup()
+                    && !userConfig.getLastProjectPath().isBlank()) {
+                File last = new File(userConfig.getLastProjectPath());
+                if (last.isFile()) {
+                    toLoad = last;
                 }
             }
-            MaraviewWindow window = new MaraviewWindow(project, opModeFinal);
+
+            ScadaProject project = null;
+            if (toLoad != null && toLoad.isFile()) {
+                try {
+                    project = MslProjectSerializer.loadProject(toLoad);
+                    userConfig.addRecentProject(toLoad.getAbsolutePath());
+                } catch (IOException ex) {
+                    System.err.println("Failed to load project " + toLoad + ": " + ex.getMessage());
+                }
+            }
+            MaraviewWindow window = new MaraviewWindow(project, opModeFinal, userConfig);
             window.setVisible(true);
         });
+    }
+
+    public static void applyLookAndFeel(UserConfig config) {
+        UserConfig.Theme theme = (config != null) ? config.getTheme() : UserConfig.Theme.LIGHT;
+        switch (theme) {
+            case DARK -> FlatDarkLaf.setup();
+            case INTELLIJ -> FlatIntelliJLaf.setup();
+            case DARCULA -> FlatDarculaLaf.setup();
+            case LIGHT -> FlatLightLaf.setup();
+        }
+
+        // Utilitarian Win95 / Win7 crossover CAD / PLC engineering look-and-feel (matching MaraFlow)
+        UIManager.put("Component.arrowType", "triangle");
+        UIManager.put("Button.arc", 0);
+        UIManager.put("Component.arc", 0);
+        UIManager.put("CheckBox.arc", 0);
+        UIManager.put("ProgressBar.arc", 0);
+        UIManager.put("TextComponent.arc", 0);
+        UIManager.put("ScrollBar.width", 14);
+        UIManager.put("ScrollBar.showButtons", true);
+        UIManager.put("TabbedPane.tabHeight", 22);
+        UIManager.put("TabbedPane.showTabSeparators", true);
+        UIManager.put("TabbedPane.tabInsets", new Insets(2, 8, 2, 8));
+        if (theme == UserConfig.Theme.LIGHT || theme == UserConfig.Theme.INTELLIJ) {
+            UIManager.put("TabbedPane.selectedBackground", Color.WHITE);
+        } else {
+            UIManager.put("TabbedPane.selectedBackground", null);
+        }
+        UIManager.put("Tree.paintLines", true);
+        UIManager.put("Tree.lineTypeDashed", true);
+        UIManager.put("Tree.hash", new Color(0x90, 0x90, 0x90));
+        UIManager.put("Table.showHorizontalLines", true);
+        UIManager.put("Table.showVerticalLines", true);
+
+        String fontFamily = (config != null) ? config.getUiFontFamily() : "Segoe UI";
+        int fontSize = (config != null) ? config.getUiFontSize() : 11;
+        UIManager.put("defaultFont", new Font(fontFamily, Font.PLAIN, fontSize));
     }
 }

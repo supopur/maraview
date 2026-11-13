@@ -116,7 +116,8 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                 String failSafe = sym.getProperty("FailSafe", "");
                 ValveDamperRenderer.paint(lg, type, localW, localH, gPx, open, posPct, failSafe);
             } else if (isTankOrVessel(type)) {
-                TankVesselRenderer.paint(lg, type, localW, localH, gPx, levelPct, fluid, state, animationTimeMs, layerCache);
+                TankVesselRenderer.TankMarkers markers = resolveTankMarkers(sym, project, tagProvider, minLevel, levelSpan);
+                TankVesselRenderer.paint(lg, type, localW, localH, gPx, levelPct, fluid, state, animationTimeMs, layerCache, markers);
             } else if (isMaterialHandling(type)) {
                 MaterialHandlingRenderer.paint(lg, type, localW, localH, gPx, state, posPct, animationTimeMs);
             } else if (extensionRenderer == null || !extensionRenderer.paint(lg, sym, localW, localH, gPx, project, tagProvider, state, animationTimeMs)) {
@@ -300,9 +301,38 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         };
     }
 
+    private static TankVesselRenderer.TankMarkers resolveTankMarkers(ScadaSymbolInstance sym, ScadaProject project,
+                                                                     RuntimeTagProvider tags, double minLevel, double levelSpan) {
+        Double spPct = null;
+        String spTag = sym.getTagBindings().get("SetpointTag");
+        if (spTag != null && !spTag.isBlank() && project != null && project.getTag(spTag) != null && tags != null) {
+            double rawSp = tags.readTag(project, spTag);
+            spPct = (levelSpan > 0.0) ? ((rawSp - minLevel) / levelSpan) * 100.0 : rawSp;
+        } else {
+            spPct = readOptionalDoubleProp(sym, "Setpoint", minLevel, levelSpan);
+        }
+        Double hh = readOptionalDoubleProp(sym, "AlarmHH", minLevel, levelSpan);
+        Double h = readOptionalDoubleProp(sym, "AlarmH", minLevel, levelSpan);
+        Double l = readOptionalDoubleProp(sym, "AlarmL", minLevel, levelSpan);
+        Double ll = readOptionalDoubleProp(sym, "AlarmLL", minLevel, levelSpan);
+        return new TankVesselRenderer.TankMarkers(spPct, hh, h, l, ll);
+    }
+
+    private static Double readOptionalDoubleProp(ScadaSymbolInstance sym, String key, double minLevel, double levelSpan) {
+        String raw = sym.getProperties().get(key);
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            double v = Double.parseDouble(raw.trim());
+            return (levelSpan > 0.0) ? ((v - minLevel) / levelSpan) * 100.0 : v;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     private static boolean isTankOrVessel(String t) {
         return switch (t) {
-            case "CylindricalTank", "HorizontalTank", "HopperSilo", "OpenBasin", "TankAgitator" -> true;
+            case "CylindricalTank", "HorizontalTank", "HopperSilo", "OpenBasin", "TankAgitator",
+                 "ConeBottomTank", "SphericalTank", "ClosedTank", "Silo", "Hopper", "Reactor" -> true;
             default -> false;
         };
     }

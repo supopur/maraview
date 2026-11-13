@@ -377,6 +377,34 @@ public final class SymbolCatalog {
                 new PortSpec("outlet", "Outlet", 1.0, 0.85, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("pwr", "Motor", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
         ));
+        register("ConeBottomTank", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 10, 14, 6, 9, true, List.of(
+                new PortSpec("inlet", "Top Inlet", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Cone Drain", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("SphericalTank", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 11, 11, 7, 7, true, List.of(
+                new PortSpec("inlet", "Top Inlet", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Bottom Outlet", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("ClosedTank", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 10, 13, 6, 8, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.25, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.80, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("vent", "Vent/PRV", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE)
+        ));
+        register("Silo", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 9, 16, 6, 10, true, List.of(
+                new PortSpec("inlet", "Pneumatic Fill", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Discharge", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("Hopper", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 10, 10, 6, 7, true, List.of(
+                new PortSpec("inlet", "Top Feed", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Bottom Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("Reactor", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 11, 15, 7, 9, true, List.of(
+                new PortSpec("feed", "Feed In", 0.0, 0.25, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("product", "Product Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("jacket_in", "Jacket In", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("jacket_out", "Jacket Out", 1.0, 0.30, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Agitator Motor", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
 
         // 6. MaR Sensors & Meters (Měření a regulace)
         register("TempSensor", "MaR Sensors & Meters", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(

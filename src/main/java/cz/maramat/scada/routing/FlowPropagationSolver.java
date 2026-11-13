@@ -256,6 +256,7 @@ public final class FlowPropagationSolver {
         String type = sym.getSymbolType();
         // Tanks and external inlet/outlet boundaries terminate pass-through flow
         if (type.contains("Tank") || type.equals("HopperSilo") || type.equals("OpenBasin")
+                || type.equals("Silo") || type.equals("Hopper") || type.equals("Reactor")
                 || type.equals("Inlet") || type.equals("Outlet")) {
             return 0.0;
         }

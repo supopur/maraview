@@ -162,4 +162,40 @@ class EquipmentSymbolRendererTest {
             assertTrue(hasOpaque, "Expected non-empty render for " + v);
         }
     }
+
+    @Test
+    void rendersAllNewTanksWithSetpointAndAlarmBands() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag lvl = new ScadaTag("TankLvl", DataType.FLOAT, TagSourceType.INTERNAL);
+        lvl.setInitialValue("72.0");
+        lvl.resetRuntimeToInitial();
+        project.putTag(lvl);
+
+        InternalTagProvider tags = new InternalTagProvider();
+        SymbolLayerCache cache = new SymbolLayerCache();
+        EquipmentSymbolRenderer renderer = new EquipmentSymbolRenderer();
+
+        List<String> vessels = List.of(
+                "ConeBottomTank", "SphericalTank", "ClosedTank", "Silo", "Hopper", "Reactor"
+        );
+
+        for (String v : vessels) {
+            ScadaSymbolInstance sym = cz.maramat.scada.model.SymbolCatalog.createInstance(v, 1, 1, 1);
+            sym.getTagBindings().put("LevelTag", "TankLvl");
+            sym.setProperty("Setpoint", "60");
+            sym.setProperty("AlarmHH", "90");
+            sym.setProperty("AlarmH", "80");
+            sym.setProperty("AlarmL", "20");
+            sym.setProperty("AlarmLL", "10");
+
+            BufferedImage img = new BufferedImage(180, 200, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                renderer.paintSymbol(g, sym, 10, project, tags, cache, 500L, false);
+            } finally {
+                g.dispose();
+            }
+            assertTrue((img.getRGB(55, 70) >>> 24) > 0, "Expected non-empty render for " + v);
+        }
+    }
 }

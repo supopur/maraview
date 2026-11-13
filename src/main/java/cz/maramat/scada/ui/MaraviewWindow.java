@@ -5,6 +5,7 @@ import cz.maramat.scada.io.MslProjectSerializer;
 import cz.maramat.scada.model.DataType;
 import cz.maramat.scada.model.FluidType;
 import cz.maramat.scada.model.PipeDiameter;
+import cz.maramat.scada.model.ScadaGraphicElement;
 import cz.maramat.scada.model.ScadaPipe;
 import cz.maramat.scada.model.ScadaProject;
 import cz.maramat.scada.model.ScadaScreen;
@@ -319,12 +320,30 @@ public class MaraviewWindow extends JFrame {
 
         JToggleButton cursorBtn = createToggleBtn(ScadaVectorIcons.cursor(), "Cursor / Select Tool");
         cursorBtn.setSelected(true);
-        JToggleButton pipeBtn = createToggleBtn(ScadaVectorIcons.pipe(), "Pipe Routing Tool");
+        JToggleButton pipeBtn = createToggleBtn(ScadaVectorIcons.pipe(), "Pipe / Wire Routing Tool");
+        JToggleButton lineBtn = createToggleBtn(ScadaVectorIcons.lineIcon(), "Draw Line");
+        JToggleButton rectBtn = createToggleBtn(ScadaVectorIcons.rectIcon(), "Draw Rectangle");
+        JToggleButton circleBtn = createToggleBtn(ScadaVectorIcons.circleIcon(), "Draw Circle");
+        JToggleButton textBtn = createToggleBtn(ScadaVectorIcons.textIcon(), "Place Text Label");
         ButtonGroup toolGroup = new ButtonGroup();
         toolGroup.add(cursorBtn);
         toolGroup.add(pipeBtn);
+        toolGroup.add(lineBtn);
+        toolGroup.add(rectBtn);
+        toolGroup.add(circleBtn);
+        toolGroup.add(textBtn);
         cursorBtn.addActionListener(e -> setActiveToolMode(ScadaCanvas.ToolMode.CURSOR));
         pipeBtn.addActionListener(e -> setActiveToolMode(ScadaCanvas.ToolMode.PIPE));
+        lineBtn.addActionListener(e -> setActiveShapeTool(ScadaGraphicElement.Kind.LINE));
+        rectBtn.addActionListener(e -> setActiveShapeTool(ScadaGraphicElement.Kind.RECTANGLE));
+        circleBtn.addActionListener(e -> setActiveShapeTool(ScadaGraphicElement.Kind.CIRCLE));
+        textBtn.addActionListener(e -> setActiveShapeTool(ScadaGraphicElement.Kind.TEXT));
+
+        JButton imageBtn = createActionBtn(ScadaVectorIcons.imageIcon(), "Insert Picture / Image...");
+        imageBtn.addActionListener(e -> {
+            ScadaCanvas c = getActiveCanvas();
+            if (c != null) c.insertImageFromDialog(10, 10);
+        });
 
         JButton rotBtn = createActionBtn(ScadaVectorIcons.rotate90(), "Rotate 90 deg (R)");
         rotBtn.addActionListener(e -> {
@@ -395,6 +414,12 @@ public class MaraviewWindow extends JFrame {
 
         tb.add(cursorBtn);
         tb.add(pipeBtn);
+        addSplitter(tb);
+        tb.add(lineBtn);
+        tb.add(rectBtn);
+        tb.add(circleBtn);
+        tb.add(textBtn);
+        tb.add(imageBtn);
         addSplitter(tb);
         tb.add(rotBtn);
         tb.add(flipHBtn);
@@ -595,6 +620,11 @@ public class MaraviewWindow extends JFrame {
     private void setActiveToolMode(ScadaCanvas.ToolMode mode) {
         ScadaCanvas c = getActiveCanvas();
         if (c != null) c.setToolMode(mode);
+    }
+
+    private void setActiveShapeTool(ScadaGraphicElement.Kind kind) {
+        ScadaCanvas c = getActiveCanvas();
+        if (c != null) c.setShapeTool(kind);
     }
 
     private void setOperatorMode(boolean opMode) {

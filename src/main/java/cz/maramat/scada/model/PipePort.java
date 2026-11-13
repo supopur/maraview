@@ -9,8 +9,13 @@ public record PipePort(
         String label,
         int offsetX,
         int offsetY,
-        CardinalDirection direction
+        CardinalDirection direction,
+        ConnectionType connectionType
 ) {
+
+    public PipePort(String id, String label, int offsetX, int offsetY, CardinalDirection direction) {
+        this(id, label, offsetX, offsetY, direction, ConnectionType.PIPE);
+    }
 
     public PipePort {
         if (id == null || id.isBlank()) {
@@ -21,6 +26,9 @@ public record PipePort(
         }
         if (direction == null) {
             throw new IllegalArgumentException("PipePort direction cannot be null.");
+        }
+        if (connectionType == null) {
+            connectionType = ConnectionType.PIPE;
         }
     }
 

@@ -1,0 +1,460 @@
+package cz.maramat.scada.model;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Central catalog of all SCADA, Electrical, Heating/HVAC, and MaR (Měření a regulace) symbols.
+ * Defines domain, fixed vs resizable geometry, minimum bounds, and dynamic port anchors.
+ */
+public final class SymbolCatalog {
+
+    public record PortSpec(
+            String id,
+            String label,
+            double ratioX,
+            double ratioY,
+            CardinalDirection direction,
+            ConnectionType connectionType
+    ) {
+        public PipePort toPipePort(int w, int h) {
+            int ox = (int) Math.round(ratioX * w);
+            int oy = (int) Math.round(ratioY * h);
+            return new PipePort(id, label, ox, oy, direction, connectionType);
+        }
+    }
+
+    public record SymbolDef(
+            String symbolType,
+            String category,
+            EquipmentDomain domain,
+            int defaultW,
+            int defaultH,
+            int minW,
+            int minH,
+            boolean resizable,
+            List<PortSpec> ports
+    ) {
+    }
+
+    private static final Map<String, SymbolDef> REGISTRY = new LinkedHashMap<>();
+    private static final Map<String, List<String>> CATEGORIES = new LinkedHashMap<>();
+
+    static {
+        // 1. Piping & Valves
+        register("HandValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 4, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("SolenoidValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 5, 4, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("coil", "Coil", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ControlValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 5, 5, 5, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("cmd", "0-10V Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ThreeWayMixingValve", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 6, 6, 6, 6, false, List.of(
+                new PortSpec("a", "Port A (Hot)", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("ab", "Port AB (Mix)", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("b", "Port B (Bypass)", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("cmd", "Actuator Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("TwoWayControlValve", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 5, 5, 5, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("cmd", "Actuator Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("CheckValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 4, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("SafetyReliefValve", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 4, 5, 4, 5, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("discharge", "Relief", 1.0, 0.4, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("AirDirtSeparator", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 4, 7, 4, 6, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.4, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.4, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("Damper", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 5, 5, 4, 4, true, List.of(
+                new PortSpec("inlet", "Air In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("cmd", "Actuator", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+
+        // 2. Pumps & Fans
+        register("CentrifugalPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 8, 10, 6, 7, true, List.of(
+                new PortSpec("suction", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("discharge", "Discharge", 0.375, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Motor Power", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("CirculationPump", "Pumps & Fans", EquipmentDomain.HEATING_HVAC, 6, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Discharge", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "230V Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("InlinePump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 6, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("MeteringPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 6, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("cmd", "Pulse/4-20mA", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("BlowerFan", "Pumps & Fans", EquipmentDomain.HEATING_HVAC, 6, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Intake", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Exhaust", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("VentilationFan", "Pumps & Fans", EquipmentDomain.HEATING_HVAC, 6, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Air In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+
+        // 3. Heating, Boilers & HVAC
+        register("Boiler", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 10, 12, 7, 8, true, List.of(
+                new PortSpec("supply", "Flow Out", 0.25, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("return", "Return In", 0.75, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("gas", "Fuel/Gas", 0.0, 0.75, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("pwr", "230V/400V", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "Bus/0-10V", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("HeatPump", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 12, 10, 8, 7, true, List.of(
+                new PortSpec("supply", "Heating Out", 1.0, 0.3, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("return", "Heating In", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Supply", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "MaR Bus", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("PlateHeatExchanger", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 8, 10, 6, 7, true, List.of(
+                new PortSpec("pri_in", "Primary In", 0.0, 0.2, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("pri_out", "Primary Out", 0.0, 0.8, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("sec_out", "Secondary Out", 1.0, 0.2, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("sec_in", "Secondary In", 1.0, 0.8, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("BufferTank", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 8, 14, 6, 9, true, List.of(
+                new PortSpec("top_in", "Hot Top", 0.0, 0.2, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("top_out", "Supply Out", 1.0, 0.2, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("bot_in", "Return In", 1.0, 0.8, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("bot_out", "Cold Bottom", 0.0, 0.8, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("t_top", "Top Sensor", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ExpansionVessel", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 6, 9, 4, 6, true, List.of(
+                new PortSpec("conn", "System Conn", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE)
+        ));
+        register("Radiator", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 10, 6, 5, 4, true, List.of(
+                new PortSpec("inlet", "Supply", 0.0, 0.2, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Return", 0.0, 0.8, CardinalDirection.WEST, ConnectionType.PIPE)
+        ));
+        register("FloorHeatingManifold", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 12, 7, 8, 5, true, List.of(
+                new PortSpec("supply", "Supply In", 0.0, 0.28, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("return", "Return Out", 0.0, 0.72, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("ctrl", "Zone Actuators", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("AhuUnit", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 16, 9, 10, 6, true, List.of(
+                new PortSpec("fresh", "Fresh Air", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("exhaust", "Exhaust Air", 0.0, 0.7, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("supply", "Supply Air", 1.0, 0.3, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("extract", "Extract Air", 1.0, 0.7, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Power", 0.3, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "MaR Control", 0.7, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("HeatingCoil", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 6, 7, 5, 5, true, List.of(
+                new PortSpec("air_in", "Air In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("air_out", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("water_in", "Water In", 0.3, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("water_out", "Water Out", 0.7, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE)
+        ));
+        register("CoolingCoil", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 6, 7, 5, 5, true, List.of(
+                new PortSpec("air_in", "Air In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("air_out", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("water_in", "Chilled In", 0.3, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("water_out", "Chilled Out", 0.7, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE)
+        ));
+        register("HeatRecovery", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 8, 8, 6, 6, true, List.of(
+                new PortSpec("oa_in", "Outdoor In", 0.0, 0.25, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("sa_out", "Supply Out", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("ra_in", "Return In", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("ea_out", "Exhaust Out", 0.0, 0.75, CardinalDirection.WEST, ConnectionType.PIPE)
+        ));
+        register("AirFilter", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 4, 6, 3, 4, true, List.of(
+                new PortSpec("inlet", "Air In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("dp", "dP Switch", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("Humidifier", "Heating & HVAC", EquipmentDomain.HEATING_HVAC, 6, 7, 5, 5, true, List.of(
+                new PortSpec("air_in", "Air In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("air_out", "Air Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("water", "Water In", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("ctrl", "0-10V Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+
+        // 4. Electrical Elements
+        register("ElectricMotor", "Electrical", EquipmentDomain.ELECTRICAL, 7, 7, 5, 5, true, List.of(
+                new PortSpec("pwr", "3~ Power", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ptc", "Thermal/FB", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("PowerSource400V", "Electrical", EquipmentDomain.ELECTRICAL, 6, 5, 5, 4, true, List.of(
+                new PortSpec("out", "L1/L2/L3 Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("bot", "Bus Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("PowerSource230V", "Electrical", EquipmentDomain.ELECTRICAL, 5, 5, 4, 4, true, List.of(
+                new PortSpec("out", "230V Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("bot", "230V Bot", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("PowerSource24V", "Electrical", EquipmentDomain.ELECTRICAL, 5, 5, 4, 4, true, List.of(
+                new PortSpec("out", "24V Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "24V Aux", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("CircuitBreaker", "Electrical", EquipmentDomain.ELECTRICAL, 4, 6, 4, 6, false, List.of(
+                new PortSpec("line", "Line In", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("load", "Load Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("aux", "Aux Status", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("Contactor", "Electrical", EquipmentDomain.ELECTRICAL, 5, 6, 5, 6, false, List.of(
+                new PortSpec("line", "Line In", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("load", "Load Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("coil", "A1/A2 Coil", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("VfdDrive", "Electrical", EquipmentDomain.ELECTRICAL, 7, 9, 5, 7, true, List.of(
+                new PortSpec("in", "Mains In", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("out", "Motor Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "0-10V / Run", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("Fuse", "Electrical", EquipmentDomain.ELECTRICAL, 3, 5, 3, 5, false, List.of(
+                new PortSpec("in", "In", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("out", "Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("OverloadRelay", "Electrical", EquipmentDomain.ELECTRICAL, 4, 5, 4, 5, false, List.of(
+                new PortSpec("in", "In", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("out", "Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("trip", "Trip NC", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("Transformer", "Electrical", EquipmentDomain.ELECTRICAL, 6, 7, 5, 6, true, List.of(
+                new PortSpec("pri", "Primary", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("sec", "Secondary", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("DistributionPanel", "Electrical", EquipmentDomain.ELECTRICAL, 10, 8, 7, 6, true, List.of(
+                new PortSpec("in", "Main In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("out1", "Feeder 1", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("out2", "Feeder 2", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ctrl", "Telemetry", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+
+        // 5. Tanks, Vessels & Reactors
+        register("CylindricalTank", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 10, 14, 6, 8, true, List.of(
+                new PortSpec("inlet", "Top Inlet", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Bottom Outlet", 0.0, 0.85, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("drain", "East Outlet", 1.0, 0.85, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("HorizontalTank", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 14, 8, 8, 5, true, List.of(
+                new PortSpec("inlet", "Top Inlet", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("HopperSilo", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 10, 14, 6, 9, true, List.of(
+                new PortSpec("inlet", "Top Fill", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Discharge", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("OpenBasin", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 12, 8, 6, 5, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.35, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.75, CardinalDirection.EAST, ConnectionType.PIPE)
+        ));
+        register("TankAgitator", "Tanks & Vessels", EquipmentDomain.FLUID_EQUIPMENT, 10, 14, 6, 8, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.25, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.85, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Motor", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+
+        // 6. MaR Sensors & Controllers (Měření a regulace)
+        register("TempSensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+                new PortSpec("sig", "Pt1000/4-20mA", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("OutdoorTempSensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+                new PortSpec("sig", "Outside T", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("PressureSensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+                new PortSpec("sig", "4-20mA Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("DiffPressureSensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 5, 5, 5, 5, false, List.of(
+                new PortSpec("sig", "dP Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("FlowMeter", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 6, 5, 5, 4, false, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("sig", "Pulse/Flow", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("Calorimeter", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 6, 6, 5, 5, false, List.of(
+                new PortSpec("inlet", "Flow In", 0.0, 0.65, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Flow Out", 1.0, 0.65, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("sig", "M-Bus/kW", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("HumiditySensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+                new PortSpec("sig", "%RH Out", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("Co2Sensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+                new PortSpec("sig", "CO2 ppm", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("RoomThermostat", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 5, 5, 5, 5, false, List.of(
+                new PortSpec("sig", "Bus/AI", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("LevelSwitch", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 5, 4, 5, false, List.of(
+                new PortSpec("sig", "DI Switch", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ProximitySensor", "MaR Sensors & Controllers", EquipmentDomain.MAR_SENSOR, 4, 4, 4, 4, false, List.of(
+                new PortSpec("sig", "DI Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("MarController", "MaR Sensors & Controllers", EquipmentDomain.MAR_CONTROLLER, 12, 8, 8, 6, true, List.of(
+                new PortSpec("pwr", "24V Power", 0.0, 0.25, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("ai1", "AI 1", 0.25, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL),
+                new PortSpec("ai2", "AI 2", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL),
+                new PortSpec("ao1", "AO 1", 0.75, 1.0, CardinalDirection.SOUTH, ConnectionType.CONTROL_SIGNAL),
+                new PortSpec("do1", "DO/Relay", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("PidController", "MaR Sensors & Controllers", EquipmentDomain.MAR_CONTROLLER, 9, 7, 7, 5, true, List.of(
+                new PortSpec("pv", "PV In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL),
+                new PortSpec("op", "OP Out", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+
+        // 7. Material Handling & Machines
+        register("ConveyorBelt", "Material Handling", EquipmentDomain.FLUID_EQUIPMENT, 14, 5, 8, 4, true, List.of(
+                new PortSpec("pwr", "Drive", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("ScrewAuger", "Material Handling", EquipmentDomain.FLUID_EQUIPMENT, 12, 5, 7, 4, true, List.of(
+                new PortSpec("inlet", "Feed", 0.15, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("outlet", "Discharge", 0.85, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Drive", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("PneumaticCylinder", "Material Handling", EquipmentDomain.FLUID_EQUIPMENT, 10, 5, 7, 4, true, List.of(
+                new PortSpec("air_a", "Air A", 0.1, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
+                new PortSpec("air_b", "Air B", 0.7, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
+        ));
+        register("HydraulicPress", "Material Handling", EquipmentDomain.FLUID_EQUIPMENT, 10, 12, 7, 8, true, List.of(
+                new PortSpec("hyd_in", "Hyd In", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Power", 1.0, 0.8, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("HeaterCoil", "Material Handling", EquipmentDomain.HEATING_HVAC, 8, 6, 5, 4, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Heater Pwr", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+
+        // 8. Operator Controls & Readouts
+        register("PushButton", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 4, 4, 4, 4, false, List.of(
+                new PortSpec("sig", "Contact", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("SelectorSwitch", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 4, 4, 4, 4, false, List.of(
+                new PortSpec("sig", "Contact", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("EStopMushroom", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 5, 5, 5, 5, false, List.of(
+                new PortSpec("sig", "Safety NC", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("PilotLamp", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 4, 4, 4, 4, false, List.of(
+                new PortSpec("sig", "Input", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("NumericReadout", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 8, 4, 6, 3, true, List.of());
+        register("NumericSetpoint", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 8, 4, 6, 3, true, List.of());
+        register("BarGraph", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 5, 10, 4, 6, true, List.of());
+        register("TrendChart", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 16, 10, 10, 6, true, List.of());
+    }
+
+    private SymbolCatalog() {
+    }
+
+    private static void register(String type, String category, EquipmentDomain domain,
+                                 int defaultW, int defaultH, int minW, int minH, boolean resizable,
+                                 List<PortSpec> ports) {
+        SymbolDef def = new SymbolDef(type, category, domain, defaultW, defaultH, minW, minH, resizable, ports);
+        REGISTRY.put(type, def);
+        CATEGORIES.computeIfAbsent(category, k -> new ArrayList<>()).add(type);
+    }
+
+    public static SymbolDef getDefinition(String symbolType) {
+        if (symbolType == null) return null;
+        return REGISTRY.get(symbolType);
+    }
+
+    public static EquipmentDomain getDomain(String symbolType) {
+        SymbolDef def = getDefinition(symbolType);
+        return (def == null) ? EquipmentDomain.FLUID_EQUIPMENT : def.domain();
+    }
+
+    public static boolean isResizable(String symbolType) {
+        SymbolDef def = getDefinition(symbolType);
+        return def == null || def.resizable();
+    }
+
+    public static int getMinGridW(String symbolType) {
+        SymbolDef def = getDefinition(symbolType);
+        return (def == null) ? 2 : def.minW();
+    }
+
+    public static int getMinGridH(String symbolType) {
+        SymbolDef def = getDefinition(symbolType);
+        return (def == null) ? 2 : def.minH();
+    }
+
+    public static Map<String, List<String>> getCategorizedTypes() {
+        return Collections.unmodifiableMap(CATEGORIES);
+    }
+
+    public static ScadaSymbolInstance createInstance(String symbolType, int gridX, int gridY, int instanceCounter) {
+        SymbolDef def = getDefinition(symbolType);
+        int w = (def != null) ? def.defaultW() : 6;
+        int h = (def != null) ? def.defaultH() : 6;
+        ScadaSymbolInstance sym = new ScadaSymbolInstance(
+                symbolType,
+                symbolType + "_" + instanceCounter,
+                gridX,
+                gridY,
+                w,
+                h
+        );
+        if (def != null) {
+            for (PortSpec ps : def.ports()) {
+                sym.getPorts().add(ps.toPipePort(w, h));
+            }
+            if (def.domain() == EquipmentDomain.ELECTRICAL) {
+                sym.setProperty("voltage", symbolType.contains("24V") ? "24V DC"
+                        : (symbolType.contains("230V") ? "230V AC" : "400V 3~ AC"));
+            } else if (def.domain() == EquipmentDomain.MAR_SENSOR) {
+                sym.setProperty("unit", inferDefaultUnit(symbolType));
+                sym.setProperty("rangeMin", "0");
+                sym.setProperty("rangeMax", symbolType.contains("Temp") ? "120" : "100");
+            } else if (def.domain() == EquipmentDomain.HEATING_HVAC || def.domain() == EquipmentDomain.FLUID_EQUIPMENT) {
+                sym.setProperty("fluidType", "WATER");
+            }
+        }
+        return sym;
+    }
+
+    /**
+     * Recomputes dynamic port offsets when a resizable symbol changes dimensions.
+     */
+    public static void rebuildPortsForSize(ScadaSymbolInstance sym) {
+        if (sym == null) return;
+        SymbolDef def = getDefinition(sym.getSymbolType());
+        if (def == null || def.ports().isEmpty()) return;
+        sym.getPorts().clear();
+        for (PortSpec ps : def.ports()) {
+            sym.getPorts().add(ps.toPipePort(sym.getGridW(), sym.getGridH()));
+        }
+    }
+
+    private static String inferDefaultUnit(String symbolType) {
+        if (symbolType.contains("Temp") || symbolType.equals("RoomThermostat")) return "°C";
+        if (symbolType.contains("Pressure")) return "bar";
+        if (symbolType.equals("FlowMeter")) return "m³/h";
+        if (symbolType.equals("Calorimeter")) return "kW";
+        if (symbolType.equals("HumiditySensor")) return "%RH";
+        if (symbolType.equals("Co2Sensor")) return "ppm";
+        return "%";
+    }
+}

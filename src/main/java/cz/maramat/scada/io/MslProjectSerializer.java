@@ -2,11 +2,13 @@ package cz.maramat.scada.io;
 
 import cz.maramat.scada.model.CardinalDirection;
 import cz.maramat.scada.model.CommSettings;
+import cz.maramat.scada.model.ConnectionType;
 import cz.maramat.scada.model.DataType;
 import cz.maramat.scada.model.FluidType;
 import cz.maramat.scada.model.GridPoint;
 import cz.maramat.scada.model.PipeDiameter;
 import cz.maramat.scada.model.PipePort;
+import cz.maramat.scada.model.ScadaGraphicElement;
 import cz.maramat.scada.model.ScadaPipe;
 import cz.maramat.scada.model.ScadaProject;
 import cz.maramat.scada.model.ScadaScreen;
@@ -17,6 +19,7 @@ import cz.maramat.scada.tags.ModbusBinding;
 import cz.maramat.scada.tags.ScadaTag;
 import cz.maramat.scada.tags.TagSourceType;
 
+import java.awt.Color;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -252,6 +255,12 @@ public final class MslProjectSerializer {
             pipeList.add(serializePipe(pipe));
         }
         m.put("pipes", pipeList);
+
+        List<Object> graphicList = new ArrayList<>();
+        for (ScadaGraphicElement g : s.getGraphics()) {
+            graphicList.add(serializeGraphic(g));
+        }
+        m.put("graphics", graphicList);
         return m;
     }
 
@@ -274,6 +283,13 @@ public final class MslProjectSerializer {
                 @SuppressWarnings("unchecked")
                 ScadaPipe pipe = deserializePipe((Map<String, Object>) pipeMap);
                 s.getPipes().add(pipe);
+            }
+        }
+        for (Object item : getList(m, "graphics")) {
+            if (item instanceof Map<?, ?> gMap) {
+                @SuppressWarnings("unchecked")
+                ScadaGraphicElement g = deserializeGraphic((Map<String, Object>) gMap);
+                s.getGraphics().add(g);
             }
         }
         return s;
@@ -304,6 +320,7 @@ public final class MslProjectSerializer {
             pm.put("offsetX", port.offsetX());
             pm.put("offsetY", port.offsetY());
             pm.put("direction", port.direction().name());
+            pm.put("connectionType", port.connectionType().name());
             portList.add(pm);
         }
         m.put("ports", portList);
@@ -349,7 +366,8 @@ public final class MslProjectSerializer {
                 int ox = getInt(pm, "offsetX", 0);
                 int oy = getInt(pm, "offsetY", 0);
                 CardinalDirection dir = parseEnum(CardinalDirection.class, getString(pm, "direction", "EAST"), CardinalDirection.EAST);
-                sym.getPorts().add(new PipePort(pid, label, ox, oy, dir));
+                ConnectionType ct = parseEnum(ConnectionType.class, getString(pm, "connectionType", "PIPE"), ConnectionType.PIPE);
+                sym.getPorts().add(new PipePort(pid, label, ox, oy, dir, ct));
             }
         }
         return sym;
@@ -363,8 +381,10 @@ public final class MslProjectSerializer {
         m.put("targetSymbolId", pipe.getTargetSymbolId());
         m.put("targetPortId", pipe.getTargetPortId());
         m.put("sourceTeePipeId", pipe.getSourceTeePipeId());
+        m.put("connectionType", pipe.getConnectionType().name());
         m.put("diameter", pipe.getDiameter().name());
         m.put("fluidType", pipe.getFluidType().name());
+        m.put("voltageOrSignal", pipe.getVoltageOrSignal());
         m.put("autoFlow", pipe.isAutoFlow());
         m.put("flowTag", pipe.getFlowTag());
         m.put("label", pipe.getLabel());
@@ -387,8 +407,10 @@ public final class MslProjectSerializer {
         pipe.setTargetSymbolId(getNullableString(m, "targetSymbolId"));
         pipe.setTargetPortId(getNullableString(m, "targetPortId"));
         pipe.setSourceTeePipeId(getNullableString(m, "sourceTeePipeId"));
+        pipe.setConnectionType(parseEnum(ConnectionType.class, getString(m, "connectionType", "PIPE"), ConnectionType.PIPE));
         pipe.setDiameter(parseEnum(PipeDiameter.class, getString(m, "diameter", "MEDIUM"), PipeDiameter.MEDIUM));
         pipe.setFluidType(parseEnum(FluidType.class, getString(m, "fluidType", "WATER"), FluidType.WATER));
+        pipe.setVoltageOrSignal(getString(m, "voltageOrSignal", "400V 3~ AC"));
         pipe.setAutoFlow(getBoolean(m, "autoFlow", true));
         pipe.setFlowTag(getString(m, "flowTag", ""));
         pipe.setLabel(getString(m, "label", ""));
@@ -401,6 +423,58 @@ public final class MslProjectSerializer {
             }
         }
         return pipe;
+    }
+
+    private static Map<String, Object> serializeGraphic(ScadaGraphicElement g) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", g.getId());
+        m.put("kind", g.getKind().name());
+        m.put("gridX", g.getGridX());
+        m.put("gridY", g.getGridY());
+        m.put("gridW", g.getGridW());
+        m.put("gridH", g.getGridH());
+        m.put("strokeColor", String.format("#%06X", g.getStrokeColor().getRGB() & 0xFFFFFF));
+        m.put("fillColor", String.format("#%06X", g.getFillColor().getRGB() & 0xFFFFFF));
+        m.put("filled", g.isFilled());
+        m.put("strokeWidth", g.getStrokeWidth());
+        m.put("dashed", g.isDashed());
+        m.put("ngonSides", g.getNgonSides());
+        m.put("text", g.getText());
+        m.put("fontSize", g.getFontSize());
+        m.put("imageBase64", g.getImageBase64());
+        m.put("imagePath", g.getImagePath());
+        m.put("preserveAspectRatio", g.isPreserveAspectRatio());
+        m.put("opacity", g.getOpacity());
+        return m;
+    }
+
+    private static ScadaGraphicElement deserializeGraphic(Map<String, Object> m) {
+        ScadaGraphicElement.Kind kind = parseEnum(ScadaGraphicElement.Kind.class,
+                getString(m, "kind", "RECTANGLE"), ScadaGraphicElement.Kind.RECTANGLE);
+        ScadaGraphicElement g = new ScadaGraphicElement(
+                kind,
+                getInt(m, "gridX", 0),
+                getInt(m, "gridY", 0),
+                getInt(m, "gridW", 6),
+                getInt(m, "gridH", 4)
+        );
+        g.setId(getString(m, "id", g.getId()));
+        g.setStrokeColor(ScadaScreen.parseHexColor(getString(m, "strokeColor", "#333333"), new Color(0x33, 0x33, 0x33)));
+        g.setFillColor(ScadaScreen.parseHexColor(getString(m, "fillColor", "#E8EEF5"), new Color(0xE8, 0xEE, 0xF5)));
+        g.setFilled(getBoolean(m, "filled", false));
+        g.setStrokeWidth(getInt(m, "strokeWidth", 1));
+        g.setDashed(getBoolean(m, "dashed", false));
+        g.setNgonSides(getInt(m, "ngonSides", 6));
+        g.setText(getString(m, "text", "Label"));
+        g.setFontSize(getInt(m, "fontSize", 11));
+        g.setImageBase64(getString(m, "imageBase64", ""));
+        g.setImagePath(getString(m, "imagePath", ""));
+        g.setPreserveAspectRatio(getBoolean(m, "preserveAspectRatio", true));
+        Object opObj = m.get("opacity");
+        if (opObj instanceof Number n) {
+            g.setOpacity(n.doubleValue());
+        }
+        return g;
     }
 
     private static String getString(Map<String, Object> m, String key, String fallback) {

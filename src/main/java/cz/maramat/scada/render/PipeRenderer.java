@@ -1,6 +1,7 @@
 package cz.maramat.scada.render;
 
 import cz.maramat.scada.model.CardinalDirection;
+import cz.maramat.scada.model.ConnectionType;
 import cz.maramat.scada.model.FluidType;
 import cz.maramat.scada.model.GridPoint;
 import cz.maramat.scada.model.ScadaPipe;
@@ -41,6 +42,15 @@ public final class PipeRenderer {
         if (pipe == null) return;
         List<GridPoint> verts = pipe.getVertices();
         if (verts.size() < 2) return;
+
+        if (pipe.getConnectionType() == ConnectionType.ELECTRICAL_POWER) {
+            paintWire(g, verts, gridSizePx, true, simActive, dashPhasePx, selected);
+            return;
+        }
+        if (pipe.getConnectionType() == ConnectionType.CONTROL_SIGNAL) {
+            paintWire(g, verts, gridSizePx, false, simActive, dashPhasePx, selected);
+            return;
+        }
 
         double diameterPx = Math.max(6.0, pipe.getDiameter().getGridUnits() * gridSizePx);
         double halfD = diameterPx / 2.0;
@@ -250,5 +260,60 @@ public final class PipeRenderer {
         if (dy > 0) return CardinalDirection.SOUTH;
         if (dy < 0) return CardinalDirection.NORTH;
         return null;
+    }
+
+    private static void paintWire(Graphics2D g, List<GridPoint> verts, int gridSizePx,
+                                  boolean powerWire, boolean simActive, double dashPhasePx, boolean selected) {
+        Paint oldPaint = g.getPaint();
+        Stroke oldStroke = g.getStroke();
+
+        float outerW = powerWire ? Math.max(3.5f, gridSizePx * 0.36f) : Math.max(2.2f, gridSizePx * 0.22f);
+        float innerW = Math.max(1.4f, outerW * 0.52f);
+
+        // Outer insulation / sheath
+        g.setColor(powerWire ? new Color(0x37, 0x47, 0x4F) : new Color(0x2E, 0x5D, 0x56));
+        g.setStroke(new BasicStroke(outerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        drawPolyline(g, verts, gridSizePx);
+
+        // Inner conductor
+        if (simActive) {
+            g.setColor(powerWire ? new Color(0xFF, 0x98, 0x00) : new Color(0x00, 0xE6, 0x76));
+            float phase = (float) (((dashPhasePx % 14.0) + 14.0) % 14.0);
+            g.setStroke(new BasicStroke(innerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                    1.0f, new float[]{8.0f, 6.0f}, phase));
+        } else {
+            g.setColor(powerWire ? new Color(0x90, 0xA4, 0xAE) : new Color(0x80, 0xCB, 0xC4));
+            g.setStroke(new BasicStroke(innerW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        }
+        drawPolyline(g, verts, gridSizePx);
+
+        // Terminal dots at endpoints
+        double dotR = outerW * 0.65;
+        g.setColor(powerWire ? new Color(0xE6, 0x51, 0x00) : new Color(0x00, 0x89, 0x7B));
+        for (int idx : new int[]{0, verts.size() - 1}) {
+            GridPoint gp = verts.get(idx);
+            g.fill(new Ellipse2D.Double(gp.x() * (double) gridSizePx - dotR,
+                    gp.y() * (double) gridSizePx - dotR, dotR * 2.0, dotR * 2.0));
+        }
+
+        if (selected) {
+            g.setColor(ScadaPalette.SELECTION_BLUE);
+            g.setStroke(new BasicStroke(outerW + 3.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            drawPolyline(g, verts, gridSizePx);
+        }
+
+        g.setPaint(oldPaint);
+        g.setStroke(oldStroke);
+    }
+
+    private static void drawPolyline(Graphics2D g, List<GridPoint> verts, int gridSizePx) {
+        for (int i = 0; i < verts.size() - 1; i++) {
+            GridPoint a = verts.get(i);
+            GridPoint b = verts.get(i + 1);
+            g.draw(new Line2D.Double(
+                    a.x() * (double) gridSizePx, a.y() * (double) gridSizePx,
+                    b.x() * (double) gridSizePx, b.y() * (double) gridSizePx
+            ));
+        }
     }
 }

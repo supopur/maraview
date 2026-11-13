@@ -21,6 +21,7 @@ public class ScadaScreen {
     private boolean showGrid = true;
     private final List<ScadaSymbolInstance> symbols = new ArrayList<>();
     private final List<ScadaPipe> pipes = new ArrayList<>();
+    private final List<ScadaGraphicElement> graphics = new ArrayList<>();
 
     public ScadaScreen() {
         this.id = UUID.randomUUID().toString();
@@ -128,5 +129,19 @@ public class ScadaScreen {
 
     public List<ScadaPipe> getPipes() {
         return pipes;
+    }
+
+    public List<ScadaGraphicElement> getGraphics() {
+        return graphics;
+    }
+
+    public ScadaGraphicElement findGraphicById(String graphicId) {
+        if (graphicId == null) return null;
+        for (ScadaGraphicElement g : graphics) {
+            if (graphicId.equals(g.getId())) {
+                return g;
+            }
+        }
+        return null;
     }
 }

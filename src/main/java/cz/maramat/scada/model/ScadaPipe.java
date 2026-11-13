@@ -16,8 +16,10 @@ public class ScadaPipe {
     private String targetPortId;
     private String sourceTeePipeId;
     private final List<GridPoint> vertices = new ArrayList<>();
+    private ConnectionType connectionType = ConnectionType.PIPE;
     private PipeDiameter diameter = PipeDiameter.MEDIUM;
     private FluidType fluidType = FluidType.WATER;
+    private String voltageOrSignal = "400V 3~ AC";
     private boolean autoFlow = true;
     private String flowTag = "";
     private String label = "";
@@ -38,8 +40,10 @@ public class ScadaPipe {
         copy.targetPortId = this.targetPortId;
         copy.sourceTeePipeId = this.sourceTeePipeId;
         copy.vertices.addAll(this.vertices);
+        copy.connectionType = this.connectionType;
         copy.diameter = this.diameter;
         copy.fluidType = this.fluidType;
+        copy.voltageOrSignal = this.voltageOrSignal;
         copy.autoFlow = this.autoFlow;
         copy.flowTag = this.flowTag;
         copy.label = this.label;
@@ -147,5 +151,21 @@ public class ScadaPipe {
 
     public void setLabel(String label) {
         this.label = (label == null) ? "" : label.trim();
+    }
+
+    public ConnectionType getConnectionType() {
+        return connectionType;
+    }
+
+    public void setConnectionType(ConnectionType connectionType) {
+        this.connectionType = (connectionType == null) ? ConnectionType.PIPE : connectionType;
+    }
+
+    public String getVoltageOrSignal() {
+        return voltageOrSignal;
+    }
+
+    public void setVoltageOrSignal(String voltageOrSignal) {
+        this.voltageOrSignal = (voltageOrSignal == null) ? "" : voltageOrSignal.trim();
     }
 }

@@ -44,6 +44,21 @@ public class ScadaSymbolInstance {
         this.gridH = Math.max(1, gridH);
     }
 
+    public String getProperty(String key, String fallback) {
+        if (key == null) return fallback;
+        String val = properties.get(key);
+        return (val == null || val.isBlank()) ? fallback : val;
+    }
+
+    public void setProperty(String key, String value) {
+        if (key == null) return;
+        if (value == null) {
+            properties.remove(key);
+        } else {
+            properties.put(key, value);
+        }
+    }
+
     public ScadaSymbolInstance copy() {
         ScadaSymbolInstance copy = new ScadaSymbolInstance(symbolType, name, gridX, gridY, gridW, gridH);
         copy.id = this.id;

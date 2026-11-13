@@ -1,5 +1,6 @@
 package cz.maramat.scada.undo;
 
+import cz.maramat.scada.model.ScadaGraphicElement;
 import cz.maramat.scada.model.ScadaPipe;
 import cz.maramat.scada.model.ScadaScreen;
 import cz.maramat.scada.model.ScadaSymbolInstance;
@@ -15,7 +16,11 @@ import java.util.List;
 public class UndoManager50 {
     public static final int MAX_STEPS = 50;
 
-    public record Snapshot(String description, List<ScadaSymbolInstance> symbols, List<ScadaPipe> pipes) {
+    public record Snapshot(String description, List<ScadaSymbolInstance> symbols,
+                           List<ScadaPipe> pipes, List<ScadaGraphicElement> graphics) {
+        public Snapshot(String description, List<ScadaSymbolInstance> symbols, List<ScadaPipe> pipes) {
+            this(description, symbols, pipes, List.of());
+        }
     }
 
     private final Deque<Snapshot> undoStack = new ArrayDeque<>();
@@ -87,7 +92,11 @@ public class UndoManager50 {
         for (ScadaPipe p : screen.getPipes()) {
             pipeCopies.add(p.copy());
         }
-        return new Snapshot(description == null ? "Edit" : description, symCopies, pipeCopies);
+        List<ScadaGraphicElement> graphicCopies = new ArrayList<>(screen.getGraphics().size());
+        for (ScadaGraphicElement g : screen.getGraphics()) {
+            graphicCopies.add(g.copy());
+        }
+        return new Snapshot(description == null ? "Edit" : description, symCopies, pipeCopies, graphicCopies);
     }
 
     private static void restore(Snapshot snap, ScadaScreen screen) {
@@ -98,6 +107,12 @@ public class UndoManager50 {
         screen.getPipes().clear();
         for (ScadaPipe p : snap.pipes()) {
             screen.getPipes().add(p.copy());
+        }
+        screen.getGraphics().clear();
+        if (snap.graphics() != null) {
+            for (ScadaGraphicElement g : snap.graphics()) {
+                screen.getGraphics().add(g.copy());
+            }
         }
     }
 

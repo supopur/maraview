@@ -60,8 +60,11 @@ public final class ScadaPalette {
 
     public static final Color STATE_STOPPED_LED = new Color(0x4A, 0x52, 0x5D);
     public static final Color STATE_RUNNING_LED = new Color(0x1E, 0x84, 0x49);
+    public static final Color STATE_RUNNING = STATE_RUNNING_LED;
     public static final Color STATE_WARNING = new Color(0xD6, 0x89, 0x10);
     public static final Color STATE_FAULT = new Color(0xD9, 0x26, 0x26);
+    public static final Color SELECTION_BLUE = new Color(0x00, 0x78, 0xD7);
+    public static final Color TEXT_PRIMARY = new Color(0x14, 0x17, 0x1A);
 
     private ScadaPalette() {
     }

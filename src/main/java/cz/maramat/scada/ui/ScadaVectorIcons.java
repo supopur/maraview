@@ -245,4 +245,57 @@ public final class ScadaVectorIcons {
             g.drawLine(6, 8, 10, 8);
         });
     }
+
+    public static Icon lineIcon() {
+        return icon((g, w, h) -> {
+            g.setColor(INK);
+            g.setStroke(new BasicStroke(1.6f));
+            g.drawLine(2, 13, 13, 2);
+            g.setColor(ACCENT_BLUE);
+            g.fillRect(1, 12, 3, 3);
+            g.fillRect(12, 1, 3, 3);
+        });
+    }
+
+    public static Icon rectIcon() {
+        return icon((g, w, h) -> {
+            g.setColor(new Color(0xE8, 0xEE, 0xF5));
+            g.fillRect(2, 3, 12, 10);
+            g.setColor(INK);
+            g.setStroke(new BasicStroke(1.3f));
+            g.drawRect(2, 3, 12, 10);
+        });
+    }
+
+    public static Icon circleIcon() {
+        return icon((g, w, h) -> {
+            g.setColor(new Color(0xE8, 0xEE, 0xF5));
+            g.fillOval(2, 2, 12, 12);
+            g.setColor(INK);
+            g.setStroke(new BasicStroke(1.3f));
+            g.drawOval(2, 2, 12, 12);
+        });
+    }
+
+    public static Icon textIcon() {
+        return icon((g, w, h) -> {
+            g.setColor(INK);
+            g.setFont(new java.awt.Font("Serif", java.awt.Font.BOLD, 13));
+            g.drawString("T", 4, 13);
+        });
+    }
+
+    public static Icon imageIcon() {
+        return icon((g, w, h) -> {
+            g.setColor(new Color(0xE8, 0xEE, 0xF5));
+            g.fillRect(2, 2, 12, 12);
+            g.setColor(ACCENT_GREEN);
+            g.fillPolygon(new int[]{3, 7, 10, 13, 3}, new int[]{13, 7, 10, 6, 13}, 5);
+            g.setColor(new Color(0xFF, 0xB3, 0x00));
+            g.fillOval(10, 4, 3, 3);
+            g.setColor(INK);
+            g.setStroke(new BasicStroke(1.2f));
+            g.drawRect(2, 2, 12, 12);
+        });
+    }
 }

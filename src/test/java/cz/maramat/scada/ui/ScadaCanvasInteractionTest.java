@@ -1,12 +1,16 @@
 package cz.maramat.scada.ui;
 
 import cz.maramat.scada.model.CardinalDirection;
+import cz.maramat.scada.model.ConnectionType;
+import cz.maramat.scada.model.EquipmentDomain;
 import cz.maramat.scada.model.GridPoint;
 import cz.maramat.scada.model.PipePort;
+import cz.maramat.scada.model.ScadaGraphicElement;
 import cz.maramat.scada.model.ScadaPipe;
 import cz.maramat.scada.model.ScadaProject;
 import cz.maramat.scada.model.ScadaScreen;
 import cz.maramat.scada.model.ScadaSymbolInstance;
+import cz.maramat.scada.model.SymbolCatalog;
 import org.junit.jupiter.api.Test;
 
 import java.awt.event.MouseEvent;
@@ -14,6 +18,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -121,6 +126,64 @@ class ScadaCanvasInteractionTest {
             canvas.setSimState(ScadaCanvas.SimState.STOPPED);
             assertEquals(ScadaCanvas.SimState.STOPPED, canvas.getSimState());
             assertTrue(canvas.getSelectedSymbolIds().isEmpty());
+        } finally {
+            canvas.dispose();
+        }
+    }
+
+    @Test
+    void deleteSelectionCascadeDeletesConnectedPipes() {
+        ScadaProject project = newProjectWithTwoConnectedPumps();
+        ScadaScreen screen = project.getScreens().getFirst();
+        ScadaCanvas canvas = new ScadaCanvas(project, screen);
+        try {
+            assertEquals(1, screen.getPipes().size());
+            canvas.getSelectedSymbolIds().add("s1");
+            canvas.deleteSelection();
+
+            assertEquals(1, screen.getSymbols().size());
+            assertEquals(0, screen.getPipes().size(), "Deleting a symbol must delete its connected pipes");
+        } finally {
+            canvas.dispose();
+        }
+    }
+
+    @Test
+    void symbolCatalogDomainsPortsAndResizabilityAreCorrect() {
+        ScadaSymbolInstance motor = SymbolCatalog.createInstance("ElectricMotor", 5, 5, 1);
+        assertEquals(EquipmentDomain.ELECTRICAL, SymbolCatalog.getDomain("ElectricMotor"));
+        assertTrue(motor.getPorts().stream().noneMatch(p -> p.connectionType() == ConnectionType.PIPE),
+                "ElectricMotor must not have fluid pipe ports");
+        assertTrue(motor.getPorts().stream().anyMatch(p -> p.connectionType() == ConnectionType.ELECTRICAL_POWER));
+
+        assertEquals(EquipmentDomain.MAR_SENSOR, SymbolCatalog.getDomain("TempSensor"));
+        assertFalse(SymbolCatalog.isResizable("TempSensor"), "Sensors should be fixed 1:1");
+
+        ScadaSymbolInstance boiler = SymbolCatalog.createInstance("Boiler", 10, 10, 1);
+        assertEquals(EquipmentDomain.HEATING_HVAC, SymbolCatalog.getDomain("Boiler"));
+        assertTrue(SymbolCatalog.isResizable("Boiler"));
+        boiler.setGridW(20);
+        boiler.setGridH(20);
+        SymbolCatalog.rebuildPortsForSize(boiler);
+        assertEquals(5, boiler.getPorts().getFirst().offsetX());
+    }
+
+    @Test
+    void graphicsAndPicturesCopyPasteAndDelete() {
+        ScadaProject project = new ScadaProject();
+        ScadaScreen screen = project.getScreens().getFirst();
+        ScadaCanvas canvas = new ScadaCanvas(project, screen);
+        try {
+            ScadaGraphicElement rect = new ScadaGraphicElement(ScadaGraphicElement.Kind.RECTANGLE, 4, 4, 8, 6);
+            screen.getGraphics().add(rect);
+            canvas.getSelectedGraphicIds().add(rect.getId());
+
+            canvas.copySelection();
+            canvas.pasteFromClipboard();
+            assertEquals(2, screen.getGraphics().size());
+
+            canvas.deleteSelection();
+            assertEquals(1, screen.getGraphics().size());
         } finally {
             canvas.dispose();
         }

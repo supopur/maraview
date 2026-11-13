@@ -83,7 +83,16 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
             lg.transform(at);
 
             String type = sym.getSymbolType();
-            if (isRotatingMachinery(type)) {
+            double phase = animationTimeMs / 60.0;
+            double numVal = readBoundValue(sym, project, tagProvider, "ValueTag",
+                    readBoundValue(sym, project, tagProvider, "SetpointTag", 0.0));
+            if (ElectricalSymbolRenderer.paint(lg, sym, localW, localH, state, phase)) {
+                // Rendered by ElectricalSymbolRenderer
+            } else if (HvacHeatingRenderer.paint(lg, sym, localW, localH, state, phase)) {
+                // Rendered by HvacHeatingRenderer
+            } else if (MarSensorRenderer.paint(lg, sym, localW, localH, state, numVal)) {
+                // Rendered by MarSensorRenderer
+            } else if (isRotatingMachinery(type)) {
                 RotatingMachineryRenderer.paint(lg, type, localW, localH, gPx, state, speedPct / 100.0, animationTimeMs, layerCache);
             } else if (isValveOrDamper(type)) {
                 ValveDamperRenderer.paint(lg, type, localW, localH, gPx, open, posPct);

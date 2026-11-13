@@ -1,5 +1,6 @@
 package cz.maramat.scada.ui;
 
+import cz.maramat.scada.alarms.AlarmEngine;
 import cz.maramat.scada.io.MslProjectSerializer;
 import cz.maramat.scada.model.DataType;
 import cz.maramat.scada.model.FluidType;
@@ -33,12 +34,15 @@ import javax.swing.JToggleButton;
 import javax.swing.JToolBar;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
+import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -54,6 +58,8 @@ public class MaraviewWindow extends JFrame {
 
     private ScadaProject project;
     private final InternalTagProvider tagProvider = new InternalTagProvider();
+    private final AlarmEngine alarmEngine = new AlarmEngine();
+    private final AlarmBannerPanel alarmBanner = new AlarmBannerPanel(alarmEngine);
     private final JTabbedPane screenTabs = new JTabbedPane();
     private final JTabbedPane leftDockTabs = new JTabbedPane();
     private final DefaultTableModel tagTableModel;
@@ -62,6 +68,11 @@ public class MaraviewWindow extends JFrame {
     private final JLabel statusLabel = new JLabel(" Ready");
     private final JToggleButton simPreviewBtn;
     private final JToggleButton operatorModeBtn;
+    private final JPanel topBarHost = new JPanel(new BorderLayout());
+    private final JPanel operatorBar = new JPanel(new BorderLayout());
+    private final JPanel operatorScreenButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+    private final JLabel connStatusLabel = new JLabel(" ONLINE ");
+    private final Timer runtimeSyncTimer;
     private JSplitPane mainSplit;
     private JToolBar quickToolbar;
     private boolean operatorMode = false;
@@ -112,7 +123,9 @@ public class MaraviewWindow extends JFrame {
         setJMenuBar(buildMenuBar());
         setLayout(new BorderLayout());
         this.quickToolbar = buildToolbar();
-        add(quickToolbar, BorderLayout.NORTH);
+        buildOperatorBar();
+        topBarHost.add(quickToolbar, BorderLayout.CENTER);
+        add(topBarHost, BorderLayout.NORTH);
 
         JTree symbolTree = SymbolCatalogTree.createTree();
         symbolTree.addMouseListener(new MouseAdapter() {
@@ -136,10 +149,21 @@ public class MaraviewWindow extends JFrame {
         mainSplit.setDividerLocation(250);
         add(mainSplit, BorderLayout.CENTER);
 
+        JPanel bottomStack = new JPanel(new BorderLayout());
+        bottomStack.add(alarmBanner, BorderLayout.NORTH);
         JPanel statusBar = new JPanel(new BorderLayout());
         statusBar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(0xB8, 0xBE, 0xC6)));
         statusBar.add(statusLabel, BorderLayout.WEST);
-        add(statusBar, BorderLayout.SOUTH);
+        bottomStack.add(statusBar, BorderLayout.SOUTH);
+        add(bottomStack, BorderLayout.SOUTH);
+
+        this.runtimeSyncTimer = new Timer(250, e -> {
+            tagProvider.syncAll(project);
+            alarmEngine.evaluate(project, System.currentTimeMillis());
+            alarmBanner.refresh(System.currentTimeMillis());
+            updateConnectionBadge();
+        });
+        this.runtimeSyncTimer.start();
 
         loadProjectIntoUi(this.project);
         if (startInOperatorMode) {
@@ -361,10 +385,55 @@ public class MaraviewWindow extends JFrame {
             screenTabs.addTab(screen.getName(), scroll);
         }
         refreshTagTable();
+        rebuildOperatorScreenButtons();
         updateTitle();
     }
 
+    private void buildOperatorBar() {
+        operatorBar.setBackground(new Color(0x2B, 0x30, 0x36));
+        operatorBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0x14, 0x17, 0x1A)));
+        operatorScreenButtons.setOpaque(false);
+
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
+        right.setOpaque(false);
+        connStatusLabel.setOpaque(true);
+        connStatusLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, 11));
+        connStatusLabel.setBackground(new Color(0x1E, 0x84, 0x49));
+        connStatusLabel.setForeground(Color.WHITE);
+
+        JButton exitOpBtn = new JButton("Exit Operator Mode");
+        exitOpBtn.addActionListener(e -> setOperatorMode(false));
+        right.add(connStatusLabel);
+        right.add(exitOpBtn);
+
+        operatorBar.add(operatorScreenButtons, BorderLayout.CENTER);
+        operatorBar.add(right, BorderLayout.EAST);
+    }
+
+    private void rebuildOperatorScreenButtons() {
+        operatorScreenButtons.removeAll();
+        if (project == null) return;
+        for (int i = 0; i < project.getScreens().size(); i++) {
+            final int idx = i;
+            ScadaScreen scr = project.getScreens().get(i);
+            JButton btn = new JButton(scr.getName());
+            btn.addActionListener(e -> screenTabs.setSelectedIndex(idx));
+            operatorScreenButtons.add(btn);
+        }
+        operatorScreenButtons.revalidate();
+        operatorScreenButtons.repaint();
+    }
+
+    private void updateConnectionBadge() {
+        boolean online = tagProvider.isConnected();
+        connStatusLabel.setText(online ? " ONLINE " : " OFFLINE ");
+        connStatusLabel.setBackground(online ? new Color(0x1E, 0x84, 0x49) : new Color(0xD9, 0x26, 0x26));
+    }
+
     private void disposeAllCanvases() {
+        if (runtimeSyncTimer != null) {
+            runtimeSyncTimer.stop();
+        }
         for (int i = 0; i < screenTabs.getTabCount(); i++) {
             if (screenTabs.getComponentAt(i) instanceof JScrollPane sp
                     && sp.getViewport().getView() instanceof ScadaCanvas c) {
@@ -397,6 +466,13 @@ public class MaraviewWindow extends JFrame {
         this.operatorMode = opMode;
         operatorModeBtn.setSelected(opMode);
         leftDockTabs.setVisible(!opMode);
+        topBarHost.removeAll();
+        topBarHost.add(opMode ? operatorBar : quickToolbar, BorderLayout.CENTER);
+        topBarHost.revalidate();
+        topBarHost.repaint();
+        if (getJMenuBar() != null) {
+            getJMenuBar().setVisible(!opMode);
+        }
         if (!opMode) {
             mainSplit.setDividerLocation(250);
         }

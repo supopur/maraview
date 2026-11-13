@@ -27,7 +27,7 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                       ScadaProject project, RuntimeTagProvider tags, EquipmentState state, long timeMs);
     }
 
-    private ExtensionRenderer extensionRenderer;
+    private ExtensionRenderer extensionRenderer = new InstrumentationControlRenderer();
 
     public void setExtensionRenderer(ExtensionRenderer extensionRenderer) {
         this.extensionRenderer = extensionRenderer;

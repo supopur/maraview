@@ -20,6 +20,7 @@ import cz.maramat.scada.undo.UndoManager50;
 import javax.swing.AbstractAction;
 import javax.swing.JComponent;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.JViewport;
 import javax.swing.KeyStroke;
@@ -477,7 +478,17 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
                     return;
                 }
-                if (operatorMode || screen == null) return;
+                if (operatorMode) {
+                    if (SwingUtilities.isLeftMouseButton(e) && screen != null) {
+                        int gPx = getGridSizePx();
+                        ScadaSymbolInstance hit = hitTestSymbol(e.getX() / (double) gPx, e.getY() / (double) gPx);
+                        if (hit != null) {
+                            handleOperatorClick(hit);
+                        }
+                    }
+                    return;
+                }
+                if (screen == null) return;
 
                 if (e.isPopupTrigger()) {
                     showContextMenu(e);
@@ -516,6 +527,10 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 // 3. Symbol hit
                 ScadaSymbolInstance symHit = hitTestSymbol(gx, gy);
                 if (symHit != null) {
+                    if (e.getClickCount() == 2) {
+                        openSymbolProperties(symHit);
+                        return;
+                    }
                     selectedPipeIds.clear();
                     if (e.isShiftDown()) {
                         if (!selectedSymbolIds.add(symHit.getId())) {
@@ -555,7 +570,17 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     vp.setViewPosition(new Point(nx, ny));
                     return;
                 }
-                if (operatorMode || screen == null) return;
+                if (operatorMode) {
+                    if (SwingUtilities.isLeftMouseButton(e) && screen != null) {
+                        int gPx = getGridSizePx();
+                        ScadaSymbolInstance hit = hitTestSymbol(e.getX() / (double) gPx, e.getY() / (double) gPx);
+                        if (hit != null) {
+                            handleOperatorClick(hit);
+                        }
+                    }
+                    return;
+                }
+                if (screen == null) return;
 
                 int gPx = getGridSizePx();
                 double gx = e.getX() / (double) gPx;
@@ -636,7 +661,17 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     setCursor(Cursor.getDefaultCursor());
                     return;
                 }
-                if (operatorMode || screen == null) return;
+                if (operatorMode) {
+                    if (SwingUtilities.isLeftMouseButton(e) && screen != null) {
+                        int gPx = getGridSizePx();
+                        ScadaSymbolInstance hit = hitTestSymbol(e.getX() / (double) gPx, e.getY() / (double) gPx);
+                        if (hit != null) {
+                            handleOperatorClick(hit);
+                        }
+                    }
+                    return;
+                }
+                if (screen == null) return;
                 if (e.isPopupTrigger()) {
                     showContextMenu(e);
                     return;
@@ -722,10 +757,17 @@ public class ScadaCanvas extends JComponent implements Scrollable {
 
             @Override
             public void mouseMoved(MouseEvent e) {
-                if (operatorMode || screen == null) return;
+                if (screen == null) return;
                 int gPx = getGridSizePx();
                 double gx = e.getX() / (double) gPx;
                 double gy = e.getY() / (double) gPx;
+                if (operatorMode) {
+                    ScadaSymbolInstance hit = hitTestSymbol(gx, gy);
+                    setCursor(hit != null && isOperatorInteractive(hit.getSymbolType())
+                            ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                            : Cursor.getDefaultCursor());
+                    return;
+                }
 
                 PortHit nextPort = hitTestPort(gx, gy, 0.7);
                 if (nextPort != hoveredPort) {
@@ -809,6 +851,8 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             back.addActionListener(ev -> sendSelectedToBack());
             JMenuItem del = new JMenuItem("Delete");
             del.addActionListener(ev -> deleteSelection());
+            JMenuItem propsItem = new JMenuItem("Properties...");
+            propsItem.addActionListener(ev -> openSymbolProperties(symHit));
             menu.add(rot);
             menu.add(fh);
             menu.add(fv);
@@ -816,6 +860,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             menu.add(front);
             menu.add(back);
             menu.addSeparator();
+            menu.add(propsItem);
             menu.add(del);
             menu.show(this, e.getX(), e.getY());
         }
@@ -907,6 +952,68 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             }
         }
         return null;
+    }
+
+    private void openSymbolProperties(ScadaSymbolInstance sym) {
+        if (project == null || screen == null || sym == null) return;
+        undoManager.recordSnapshot("Edit Properties", screen);
+        ScadaSymbolPropertiesDialog dlg = new ScadaSymbolPropertiesDialog(
+                SwingUtilities.getWindowAncestor(this), project, sym);
+        dlg.setVisible(true);
+        if (dlg.isConfirmed()) {
+            markDirty();
+            repaint();
+        }
+    }
+
+    private void handleOperatorClick(ScadaSymbolInstance sym) {
+        if (project == null || tagProvider == null) return;
+        String type = sym.getSymbolType();
+        String targetTag = resolveWriteTag(sym);
+        if (targetTag == null || targetTag.isBlank()) return;
+
+        double cur = tagProvider.readTag(project, targetTag);
+        switch (type) {
+            case "PushButton", "EStopMushroom", "SolenoidValve", "HandValve" -> {
+                tagProvider.writeTag(project, targetTag, (cur != 0.0) ? 0.0 : 1.0);
+                repaint();
+            }
+            case "SelectorSwitch" -> {
+                int next = ((int) Math.round(cur) + 1) % 3;
+                tagProvider.writeTag(project, targetTag, next);
+                repaint();
+            }
+            case "NumericSetpoint" -> {
+                String input = JOptionPane.showInputDialog(this,
+                        "Enter setpoint for " + sym.getName() + " (" + targetTag + "):",
+                        Double.toString(cur));
+                if (input != null && !input.isBlank()) {
+                    try {
+                        tagProvider.writeTag(project, targetTag, Double.parseDouble(input.trim()));
+                        repaint();
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private static String resolveWriteTag(ScadaSymbolInstance sym) {
+        for (String role : new String[]{"SetpointTag", "ValueTag", "OpenTag", "RunTag"}) {
+            String t = sym.getTagBindings().get(role);
+            if (t != null && !t.isBlank()) return t;
+        }
+        return null;
+    }
+
+    private static boolean isOperatorInteractive(String type) {
+        return switch (type) {
+            case "PushButton", "SelectorSwitch", "EStopMushroom",
+                 "SolenoidValve", "HandValve", "NumericSetpoint" -> true;
+            default -> false;
+        };
     }
 
     private static SymbolRenderer defaultSymbolRenderer() {

@@ -10,6 +10,7 @@ import java.awt.Graphics2D;
 import java.awt.LinearGradientPaint;
 import java.awt.Paint;
 import java.awt.RadialGradientPaint;
+import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.Stroke;
 import java.awt.geom.Arc2D;
@@ -19,6 +20,9 @@ import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
+import java.awt.image.BufferedImage;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Reusable Graphics2D 3D metallic/cylindrical shading toolkit for SCADA equipment rendering.
@@ -27,6 +31,7 @@ public final class ScadaShader {
 
     private static final BasicStroke STROKE_1PX = new BasicStroke(1.0f);
     private static final BasicStroke STROKE_2PX = new BasicStroke(2.0f);
+    private static final Map<Long, BufferedImage> NOZZLE_CACHE = new ConcurrentHashMap<>();
 
     private ScadaShader() {
     }
@@ -189,6 +194,34 @@ public final class ScadaShader {
      */
     public static void paintPortNozzle(Graphics2D g, double px, double py, CardinalDirection outDir,
                                        int gPx, ConnectionType connType) {
+        if (outDir == null || connType == null) return;
+        double stubLen = Math.max(10.0, gPx * 1.1);
+        double flangeSpan = Math.max(6.0, gPx * 0.68) + 5.0;
+        int pad = (int) Math.ceil(Math.max(stubLen, flangeSpan) + 4.0);
+        long key = (((long) gPx) << 16) | (((long) outDir.ordinal()) << 8) | connType.ordinal();
+        BufferedImage sprite = NOZZLE_CACHE.get(key);
+        if (sprite == null) {
+            if (NOZZLE_CACHE.size() > 256) {
+                NOZZLE_CACHE.clear();
+            }
+            int size = pad * 2;
+            BufferedImage created = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D sg = created.createGraphics();
+            try {
+                sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                sg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                paintPortNozzleDirect(sg, pad, pad, outDir, gPx, connType);
+            } finally {
+                sg.dispose();
+            }
+            NOZZLE_CACHE.putIfAbsent(key, created);
+            sprite = NOZZLE_CACHE.get(key);
+        }
+        g.drawImage(sprite, (int) Math.round(px) - pad, (int) Math.round(py) - pad, null);
+    }
+
+    private static void paintPortNozzleDirect(Graphics2D g, double px, double py, CardinalDirection outDir,
+                                              int gPx, ConnectionType connType) {
         if (connType == ConnectionType.ELECTRICAL_POWER
                 || connType == ConnectionType.CONTROL_SIGNAL
                 || connType == ConnectionType.PNEUMATIC

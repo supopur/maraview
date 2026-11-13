@@ -265,4 +265,64 @@ class ScadaCanvasInteractionTest {
             canvas.dispose();
         }
     }
+
+    @Test
+    void paintComponentBoundsReadTagCallsPerFrame() {
+        ScadaProject project = new ScadaProject();
+        ScadaScreen screen = project.getScreens().getFirst();
+        project.putTag(new ScadaTag("T_RUN", DataType.BOOL, TagSourceType.INTERNAL));
+        project.putTag(new ScadaTag("T_VAL", DataType.BOOL, TagSourceType.INTERNAL));
+
+        // 20 unbound TeeFittings + 5 bound HeatPumps + 5 bound NumericReadouts
+        for (int i = 0; i < 20; i++) {
+            ScadaSymbolInstance tee = new ScadaSymbolInstance("TeeFitting", "Tee" + i, 4 + i * 4, 4, 2, 2);
+            tee.setId("tee" + i);
+            screen.getSymbols().add(tee);
+        }
+        for (int i = 0; i < 5; i++) {
+            ScadaSymbolInstance hp = new ScadaSymbolInstance("HeatPump", "HP" + i, 4 + i * 10, 12, 6, 4);
+            hp.setId("hp" + i);
+            hp.getTagBindings().put("RunTag", "T_RUN");
+            screen.getSymbols().add(hp);
+
+            ScadaSymbolInstance num = new ScadaSymbolInstance("NumericReadout", "Num" + i, 4 + i * 10, 20, 6, 2);
+            num.setId("num" + i);
+            num.getTagBindings().put("ValueTag", "T_VAL");
+            screen.getSymbols().add(num);
+        }
+
+        AtomicInteger readCalls = new AtomicInteger();
+        InternalTagProvider countingTags = new InternalTagProvider() {
+            @Override
+            public double readTag(ScadaProject p, String tagName) {
+                readCalls.incrementAndGet();
+                return super.readTag(p, tagName);
+            }
+        };
+
+        ScadaCanvas canvas = new ScadaCanvas(project, screen);
+        canvas.setTagProvider(countingTags);
+        canvas.setSize(1200, 800);
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+                1200, 800, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        try {
+            java.awt.Graphics2D g = img.createGraphics();
+            try {
+                // Warm up static caches & flow cache
+                canvas.paint(g);
+                readCalls.set(0);
+                canvas.paint(g);
+                int callsPerFrame = readCalls.get();
+                // 10 bound symbols: each reads at most 1-2 times; 20 unbound symbols must do 0 reads;
+                // FlowPropagationSolver is cached because revision didn't change.
+                assertTrue(callsPerFrame <= 15,
+                        "Expected <= 15 readTag calls per cached frame, got " + callsPerFrame);
+            } finally {
+                g.dispose();
+            }
+        } finally {
+            canvas.dispose();
+            img.flush();
+        }
+    }
 }

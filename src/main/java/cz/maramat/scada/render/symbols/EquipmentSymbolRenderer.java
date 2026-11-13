@@ -106,6 +106,8 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                 // Rendered by HvacHeatingRenderer
             } else if (WastewaterRenderer.paint(lg, sym, localW, localH, state, phase)) {
                 // Rendered by WastewaterRenderer
+            } else if (ActuatorRenderer.paint(lg, sym, localW, localH, gPx, project, tagProvider, state, animationTimeMs)) {
+                // Rendered by ActuatorRenderer
             } else if (MarSensorRenderer.paint(lg, sym, localW, localH, state, numVal)) {
                 // Rendered by MarSensorRenderer
             } else if (isRotatingMachinery(type)) {
@@ -280,7 +282,10 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
 
     private static boolean isRotatingMachinery(String t) {
         return switch (t) {
-            case "CentrifugalPump", "InlinePump", "MeteringPump", "ElectricMotor", "BlowerFan" -> true;
+            case "CentrifugalPump", "InlinePump", "MeteringPump",
+                 "SubmersiblePump", "PositiveDisplacementPump", "GearPump", "DiaphragmPump",
+                 "PeristalticPump", "ScrewPump", "VacuumPump", "BoosterPump",
+                 "ElectricMotor", "BlowerFan" -> true;
             default -> false;
         };
     }

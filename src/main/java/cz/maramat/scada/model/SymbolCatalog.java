@@ -115,6 +115,60 @@ public final class SymbolCatalog {
                 new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("cmd", "Pulse/4-20mA", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
+        register("SubmersiblePump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 6, 9, 5, 7, true, List.of(
+                new PortSpec("discharge", "Discharge", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Submersible Cable", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("PositiveDisplacementPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 7, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Discharge", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Motor Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("GearPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 7, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Discharge", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Motor Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("DiaphragmPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 7, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Discharge", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("air", "Drive / Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PNEUMATIC)
+        ));
+        register("PeristalticPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 6, 6, 5, 5, true, List.of(
+                new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("cmd", "Speed Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ScrewPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 9, 6, 6, 5, true, List.of(
+                new PortSpec("inlet", "Suction", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Discharge", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "Drive Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("VacuumPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 7, 7, 5, 5, true, List.of(
+                new PortSpec("inlet", "Vacuum In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Exhaust", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.PIPE),
+                new PortSpec("pwr", "Motor Power", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.ELECTRICAL_POWER)
+        ));
+        register("BoosterPump", "Pumps & Fans", EquipmentDomain.FLUID_EQUIPMENT, 7, 9, 5, 7, true, List.of(
+                new PortSpec("inlet", "Suction", 0.0, 0.75, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("outlet", "Boosted Out", 1.0, 0.25, CardinalDirection.EAST, ConnectionType.PIPE),
+                new PortSpec("pwr", "400V Power", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.ELECTRICAL_POWER)
+        ));
+
+        // 2b. Actuators
+        register("PneumaticActuator", "Actuators", EquipmentDomain.FLUID_EQUIPMENT, 6, 6, 5, 5, true, List.of(
+                new PortSpec("air", "Air Supply", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PNEUMATIC),
+                new PortSpec("sig", "Limit Switches", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("ElectricActuator", "Actuators", EquipmentDomain.FLUID_EQUIPMENT, 6, 6, 5, 5, true, List.of(
+                new PortSpec("pwr", "Motor Power", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.ELECTRICAL_POWER),
+                new PortSpec("sig", "Cmd / Limits", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
+        register("HydraulicActuator", "Actuators", EquipmentDomain.FLUID_EQUIPMENT, 7, 6, 5, 5, true, List.of(
+                new PortSpec("hyd_a", "Hyd Port A", 0.0, 0.3, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("hyd_b", "Hyd Port B", 0.0, 0.7, CardinalDirection.WEST, ConnectionType.PIPE),
+                new PortSpec("sig", "Limit Switches", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
+        ));
         register("BlowerFan", "Pumps & Fans", EquipmentDomain.HEATING_HVAC, 6, 6, 5, 5, true, List.of(
                 new PortSpec("inlet", "Intake", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Exhaust", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),

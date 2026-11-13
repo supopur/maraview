@@ -83,4 +83,41 @@ class EquipmentSymbolRendererTest {
         }
         assertTrue((img.getRGB(60, 80) >>> 24) > 0);
     }
+
+    @Test
+    void rendersAllNewPumpsAndActuators() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag run = new ScadaTag("RunTag", DataType.BOOL, TagSourceType.INTERNAL);
+        run.setInitialValue("1");
+        run.resetRuntimeToInitial();
+        project.putTag(run);
+
+        InternalTagProvider tags = new InternalTagProvider();
+        SymbolLayerCache cache = new SymbolLayerCache();
+        EquipmentSymbolRenderer renderer = new EquipmentSymbolRenderer();
+
+        List<String> types = List.of(
+                "SubmersiblePump", "PositiveDisplacementPump", "GearPump", "DiaphragmPump",
+                "PeristalticPump", "ScrewPump", "VacuumPump", "BoosterPump",
+                "PneumaticActuator", "ElectricActuator", "HydraulicActuator"
+        );
+
+        for (String t : types) {
+            ScadaSymbolInstance sym = cz.maramat.scada.model.SymbolCatalog.createInstance(t, 1, 1, 1);
+            sym.getTagBindings().put("RunTag", "RunTag");
+            if (t.endsWith("Actuator")) {
+                sym.setProperty("ActuatorState", "TRAVELLING");
+                sym.setProperty("OpenLimit", "false");
+                sym.setProperty("ClosedLimit", "false");
+            }
+            BufferedImage img = new BufferedImage(160, 160, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                renderer.paintSymbol(g, sym, 10, project, tags, cache, 500L, false);
+            } finally {
+                g.dispose();
+            }
+            assertTrue((img.getRGB(40, 40) >>> 24) > 0, "Expected non-empty render for " + t);
+        }
+    }
 }

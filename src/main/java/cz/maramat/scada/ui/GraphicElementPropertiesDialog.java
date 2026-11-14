@@ -9,6 +9,7 @@ import javax.swing.JColorChooser;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
@@ -80,7 +81,11 @@ public final class GraphicElementPropertiesDialog {
                         byte[] bytes = Files.readAllBytes(f.toPath());
                         imgBase64[0] = Base64.getEncoder().encodeToString(bytes);
                         imgPathField.setText(f.getName());
-                    } catch (Exception ignored) {
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(dlg,
+                                "Failed to load image: " + ex.getMessage(),
+                                "Image Load Error",
+                                JOptionPane.ERROR_MESSAGE);
                     }
                 }
             });

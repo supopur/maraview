@@ -16,6 +16,8 @@ import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Unified SymbolRenderer dispatching to 3D industrial equipment, instrumentation, and operator control renderers.
@@ -34,9 +36,26 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         }
     }
 
+    private record LabelMetricsKey(String text, int fontSize) {
+    }
+
+    private record LabelBounds(double width, double height) {
+    }
+
     private static final Color LABEL_COLOR = new Color(0x14, 0x17, 0x1A);
+    private static boolean globalShowLabels = true;
     private Font cachedLabelFont;
     private int cachedLabelFontSize = -1;
+    private static final Map<Integer, Font> BADGE_FONTS = new HashMap<>();
+    private final Map<LabelMetricsKey, LabelBounds> labelBoundsCache = new HashMap<>();
+
+    public static void setGlobalShowLabels(boolean show) {
+        globalShowLabels = show;
+    }
+
+    public static boolean isGlobalShowLabels() {
+        return globalShowLabels;
+    }
 
     private ExtensionRenderer extensionRenderer = new InstrumentationControlRenderer();
 
@@ -129,7 +148,7 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
                 // Rendered by ActuatorRenderer
             } else if (ProcessFittingRenderer.paint(lg, sym, localW, localH, gPx, state, fluid, animationTimeMs, layerCache)) {
                 // Rendered by ProcessFittingRenderer
-            } else if (MarSensorRenderer.paint(lg, sym, localW, localH, state, numVal)) {
+            } else if (MarSensorRenderer.paint(lg, sym, localW, localH, state, numVal, layerCache)) {
                 // Rendered by MarSensorRenderer
             } else if (isRotatingMachinery(type)) {
                 RotatingMachineryRenderer.paint(lg, type, localW, localH, gPx, state, speedPct / 100.0, animationTimeMs, layerCache);
@@ -154,20 +173,75 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         // Optional Local/Remote, Hand/Off/Auto, and Standby mode badges
         paintControlModeBadges(g, sym, project, tagProvider, state, x, y, effW, gPx);
 
-        // Crisp equipment tag label below symbol
-        if (!sym.getName().isBlank()) {
+        // Crisp equipment tag label (positioned & offsettable, toggleable per-symbol and globally)
+        String symName = sym.getName();
+        if (globalShowLabels && sym.isShowLabel() && symName != null && !symName.isBlank()) {
             int fontSize = Math.max(9, gPx);
             if (cachedLabelFont == null || cachedLabelFontSize != fontSize) {
                 cachedLabelFont = new Font(Font.SANS_SERIF, Font.BOLD, fontSize);
                 cachedLabelFontSize = fontSize;
             }
             g.setFont(cachedLabelFont);
-            Rectangle2D bounds = g.getFontMetrics().getStringBounds(sym.getName(), g);
-            float tx = (float) (x + (effW - bounds.getWidth()) / 2.0);
-            float ty = (float) (y + effH + bounds.getHeight() + 1);
+            LabelMetricsKey lmk = new LabelMetricsKey(symName, fontSize);
+            LabelBounds lb = labelBoundsCache.get(lmk);
+            if (lb == null) {
+                if (labelBoundsCache.size() > 1024) {
+                    labelBoundsCache.clear();
+                }
+                Rectangle2D bounds = g.getFontMetrics().getStringBounds(symName, g);
+                lb = new LabelBounds(bounds.getWidth(), bounds.getHeight());
+                labelBoundsCache.put(lmk, lb);
+            }
+            double[] anchor = computeLabelAnchor(x, y, effW, effH, lb.width(), lb.height(), sym);
+            float tx = (float) anchor[0];
+            float ty = (float) (anchor[1] + lb.height() * 0.82);
             g.setColor(LABEL_COLOR);
-            g.drawString(sym.getName(), tx, ty);
+            g.drawString(symName, tx, ty);
         }
+    }
+
+    public static Rectangle2D.Double computeLabelBounds(Graphics2D g, ScadaSymbolInstance sym, int gPx) {
+        if (!globalShowLabels || sym == null || !sym.isShowLabel() || sym.getName() == null || sym.getName().isBlank()) {
+            return null;
+        }
+        int fontSize = Math.max(9, gPx);
+        Font font = new Font(Font.SANS_SERIF, Font.BOLD, fontSize);
+        Rectangle2D strBounds = g.getFontMetrics(font).getStringBounds(sym.getName(), g);
+        int x = sym.getGridX() * gPx;
+        int y = sym.getGridY() * gPx;
+        int effW = sym.getEffectiveGridW() * gPx;
+        int effH = sym.getEffectiveGridH() * gPx;
+        double[] anchor = computeLabelAnchor(x, y, effW, effH, strBounds.getWidth(), strBounds.getHeight(), sym);
+        return new Rectangle2D.Double(anchor[0] - 2, anchor[1] - 1, strBounds.getWidth() + 4, strBounds.getHeight() + 2);
+    }
+
+    private static double[] computeLabelAnchor(int x, int y, int effW, int effH,
+                                               double textW, double textH, ScadaSymbolInstance sym) {
+        double bx;
+        double by;
+        switch (sym.getLabelPosition()) {
+            case TOP -> {
+                bx = x + (effW - textW) / 2.0;
+                by = y - textH - 2.0;
+            }
+            case LEFT -> {
+                bx = x - textW - 5.0;
+                by = y + (effH - textH) / 2.0;
+            }
+            case RIGHT -> {
+                bx = x + effW + 5.0;
+                by = y + (effH - textH) / 2.0;
+            }
+            case INSIDE -> {
+                bx = x + (effW - textW) / 2.0;
+                by = y + (effH - textH) / 2.0;
+            }
+            default -> {
+                bx = x + (effW - textW) / 2.0;
+                by = y + effH + 2.0;
+            }
+        }
+        return new double[]{bx + sym.getLabelOffsetX(), by + sym.getLabelOffsetY()};
     }
 
     public static EquipmentState resolveState(ScadaSymbolInstance sym, ScadaProject project, RuntimeTagProvider tags) {
@@ -188,6 +262,12 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         if ("STANDBY".equalsIgnoreCase(propState)) {
             return EquipmentState.STANDBY;
         }
+        if ("RUNNING".equalsIgnoreCase(propState)
+                || Boolean.parseBoolean(sym.getProperty("Running", "false"))
+                || Boolean.parseBoolean(sym.getProperty("Closed", "false"))
+                || Boolean.parseBoolean(sym.getProperty("Pressed", "false"))) {
+            return EquipmentState.RUNNING;
+        }
         return EquipmentState.STOPPED;
     }
 
@@ -204,7 +284,7 @@ public class EquipmentSymbolRenderer implements SymbolRenderer {
         Color oldColor = g.getColor();
         int badgeH = Math.max(11, gPx + 2);
         int fontSize = Math.max(8, gPx - 1);
-        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, fontSize));
+        g.setFont(BADGE_FONTS.computeIfAbsent(fontSize, s -> new Font(Font.SANS_SERIF, Font.BOLD, s)));
 
         int bx = x + effW;
         int by = y - badgeH - 1;

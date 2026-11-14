@@ -213,7 +213,6 @@ public final class ElectricalSymbolRenderer {
         for (int i = 0; i < cols; i++) {
             g.fill(new Rectangle2D.Double(w * 0.18 + i * cw + 1, h * 0.36, Math.max(3, cw - 3), h * 0.28));
         }
-        drawCenteredLabel(g, sym.getName(), w / 2.0, h * 0.92, ScadaPalette.TEXT_PRIMARY, 9);
     }
 
     private static void paintElectricMotor(Graphics2D g, ScadaSymbolInstance sym, double w, double h,

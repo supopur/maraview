@@ -166,25 +166,35 @@ public final class JsonCodec {
             }
         }
 
+        private static final int MAX_DEPTH = 256;
+        private int depth = 0;
+
         Object parseValue() throws IOException {
-            skipWhitespace();
-            if (isAtEnd()) {
-                throw new IOException("Unexpected end of JSON input.");
+            if (++depth > MAX_DEPTH) {
+                throw new IOException("JSON nesting depth exceeds " + MAX_DEPTH);
             }
-            char c = src.charAt(pos);
-            return switch (c) {
-                case '{' -> parseObject();
-                case '[' -> parseArray();
-                case '"' -> parseString();
-                case 't', 'f' -> parseBoolean();
-                case 'n' -> parseNull();
-                default -> {
-                    if (c == '-' || (c >= '0' && c <= '9')) {
-                        yield parseNumber();
-                    }
-                    throw new IOException("Unexpected character '" + c + "' at position " + pos);
+            try {
+                skipWhitespace();
+                if (isAtEnd()) {
+                    throw new IOException("Unexpected end of JSON input.");
                 }
-            };
+                char c = src.charAt(pos);
+                return switch (c) {
+                    case '{' -> parseObject();
+                    case '[' -> parseArray();
+                    case '"' -> parseString();
+                    case 't', 'f' -> parseBoolean();
+                    case 'n' -> parseNull();
+                    default -> {
+                        if (c == '-' || (c >= '0' && c <= '9')) {
+                            yield parseNumber();
+                        }
+                        throw new IOException("Unexpected character '" + c + "' at position " + pos);
+                    }
+                };
+            } finally {
+                depth--;
+            }
         }
 
         Map<String, Object> parseObject() throws IOException {

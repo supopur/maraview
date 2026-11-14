@@ -20,6 +20,9 @@ import java.awt.geom.Line2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Dynamic vector renderer for Heating, Boilers, Heat Pumps, Manifolds, Radiators, and HVAC units.
@@ -29,6 +32,7 @@ public final class HvacHeatingRenderer {
     private static final Color HOT_RED = new Color(0xE5, 0x39, 0x35);
     private static final Color COOL_BLUE = new Color(0x1E, 0x88, 0xE5);
     private static final Color FLAME_ORANGE = new Color(0xFF, 0x98, 0x00);
+    private static final Map<Integer, Font> SANS_BOLD_FONTS = new ConcurrentHashMap<>();
 
     private HvacHeatingRenderer() {
     }
@@ -70,6 +74,23 @@ public final class HvacHeatingRenderer {
                 g.drawImage(img, 0, 0, null);
                 return true;
             }
+            String valueVariant = switch (type) {
+                case "Radiator", "UnderfloorHeatingZone" ->
+                        state.name() + "|" + String.format(Locale.US, "%.1f", numVal);
+                case "RoomSymbol" ->
+                        state.name() + "|" + String.format(Locale.US, "%.1f", numVal)
+                                + "|" + sym.getProperty("Setpoint", "");
+                case "VavBox" ->
+                        String.valueOf(Math.round(Math.max(0.0, Math.min(100.0, posPct))));
+                default -> null;
+            };
+            if (valueVariant != null) {
+                CacheKey key = new CacheKey("HV:" + type, iw, ih, 0, false, false, valueVariant);
+                BufferedImage img = cache.getOrCreateBackground(key, (cg, cw, ch) ->
+                        paintDirect(cg, sym, cw, ch, state, 0.0, speedPct, posPct, numVal));
+                g.drawImage(img, 0, 0, null);
+                return true;
+            }
         }
         return paintDirect(g, sym, w, h, state, phase, speedPct, posPct, numVal);
     }
@@ -90,11 +111,11 @@ public final class HvacHeatingRenderer {
 
     private static boolean isStaticHvacType(String type) {
         return switch (type) {
-            case "ElectricBoiler", "PlateHeatExchanger", "ShellAndTubeHeatExchanger",
+            case "ElectricBoiler", "Chiller", "PlateHeatExchanger", "ShellAndTubeHeatExchanger",
                  "CoilHeatExchanger", "BufferTank", "ThermalStorageTank", "ExpansionVessel",
                  "FloorHeatingManifold", "ZoneValve", "SolarThermalCollector",
                  "ThreeWayMixingValve", "TwoWayControlValve", "SafetyReliefValve",
-                 "AirDirtSeparator", "HeatingCoil", "CoolingCoil", "HeatRecovery",
+                 "AirDirtSeparator", "CirculationPump", "HeatingCoil", "CoolingCoil", "HeatRecovery",
                  "AirFilter", "Humidifier", "ExpansionValve", "RefrigerantReceiver" -> true;
             default -> false;
         };
@@ -428,7 +449,7 @@ public final class HvacHeatingRenderer {
         // Temperature display pill
         g.setColor(new Color(0x14, 0x17, 0x1A, 200));
         g.fill(new RoundRectangle2D.Double(w * 0.24, h * 0.28, w * 0.52, h * 0.44, 4, 4));
-        drawBadge(g, String.format("%.1f°C", tempC), w * 0.50, h * 0.58, Color.WHITE, 8);
+        drawBadge(g, String.format(Locale.US, "%.1f°C", tempC), w * 0.50, h * 0.58, Color.WHITE, 8);
     }
 
     private static void paintFloorHeatingManifold(Graphics2D g, double w, double h, EquipmentState state) {
@@ -737,7 +758,7 @@ public final class HvacHeatingRenderer {
                 g.draw(new Line2D.Double(rx, y0, rx, y0 + step));
             }
         }
-        drawBadge(g, String.format("%.1f°C", tempC), w * 0.50, h * 0.56, ScadaPalette.TEXT_PRIMARY, 8);
+        drawBadge(g, String.format(Locale.US, "%.1f°C", tempC), w * 0.50, h * 0.56, ScadaPalette.TEXT_PRIMARY, 8);
     }
 
     private static void paintVavBox(Graphics2D g, double w, double h, EquipmentState state, double posPct) {
@@ -749,7 +770,7 @@ public final class HvacHeatingRenderer {
         g.setStroke(new BasicStroke(2.5f));
         g.draw(new Line2D.Double(w * 0.5 - Math.cos(bladeAng) * len, h * 0.5 - Math.sin(bladeAng) * len,
                 w * 0.5 + Math.cos(bladeAng) * len, h * 0.5 + Math.sin(bladeAng) * len));
-        drawBadge(g, String.format("VAV %.0f%%", clamped), w * 0.50, h * 0.94, ScadaPalette.TEXT_PRIMARY, 7);
+        drawBadge(g, String.format(Locale.US, "VAV %.0f%%", clamped), w * 0.50, h * 0.94, ScadaPalette.TEXT_PRIMARY, 7);
     }
 
     private static void paintRoomSymbol(Graphics2D g, ScadaSymbolInstance sym, double w, double h,
@@ -757,7 +778,7 @@ public final class HvacHeatingRenderer {
         ScadaShader.paintBeveledHousing(g, 2, 2, w - 4, h - 4, 6, Material.STAINLESS_STEEL);
         g.setColor(new Color(0x18, 0x1C, 0x20));
         g.fill(new RoundRectangle2D.Double(6, 6, w - 12, h - 12, 4, 4));
-        drawBadge(g, String.format("%.1f°C", tempC), w * 0.50, h * 0.52,
+        drawBadge(g, String.format(Locale.US, "%.1f°C", tempC), w * 0.50, h * 0.52,
                 state == EquipmentState.RUNNING ? new Color(0x69, 0xF0, 0xAE) : Color.WHITE, 11);
         String sp = sym != null ? sym.getProperty("Setpoint", "") : "";
         if (!sp.isBlank()) {
@@ -767,7 +788,8 @@ public final class HvacHeatingRenderer {
 
     private static void drawBadge(Graphics2D g, String text, double cx, double y, Color color, int size) {
         g.setColor(color);
-        g.setFont(new Font("Segoe UI", Font.BOLD, size));
+        Font font = SANS_BOLD_FONTS.computeIfAbsent(size, s -> new Font(Font.SANS_SERIF, Font.BOLD, s));
+        g.setFont(font);
         FontMetrics fm = g.getFontMetrics();
         g.drawString(text, (float) (cx - fm.stringWidth(text) / 2.0), (float) y);
     }

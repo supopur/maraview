@@ -257,10 +257,10 @@ public final class ScadaShader {
             return;
         }
 
-        double stubLen = Math.max(10.0, gPx * 1.1);
-        double pipeDiam = Math.max(6.0, gPx * 0.68);
-        double flangeT = Math.max(3.5, gPx * 0.36);
-        double flangeSpan = pipeDiam + 5.0;
+        double stubLen = Math.max(6.0, gPx * 0.85);
+        double pipeDiam = Math.max(4.0, gPx * 0.55);
+        double flangeT = Math.max(2.5, gPx * 0.25);
+        double flangeSpan = pipeDiam + 3.0;
 
         switch (outDir) {
             case WEST -> {

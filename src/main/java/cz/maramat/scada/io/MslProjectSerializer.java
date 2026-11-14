@@ -45,7 +45,26 @@ public final class MslProjectSerializer {
             throw new IllegalArgumentException("Target file cannot be null.");
         }
         String json = toJsonString(project);
-        Files.writeString(file.toPath(), json, StandardCharsets.UTF_8);
+        java.nio.file.Path targetPath = file.toPath();
+        java.nio.file.Path parentDir = targetPath.getParent();
+        if (parentDir != null) {
+            Files.createDirectories(parentDir);
+        }
+        java.nio.file.Path tmpPath = Files.createTempFile(
+                parentDir != null ? parentDir : java.nio.file.Path.of("."),
+                ".maraview_save_", ".tmp");
+        try {
+            Files.writeString(tmpPath, json, StandardCharsets.UTF_8);
+            try {
+                Files.move(tmpPath, targetPath,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ex) {
+                Files.move(tmpPath, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(tmpPath);
+        }
         project.setProjectFile(file);
         project.setDirty(false);
     }
@@ -309,6 +328,11 @@ public final class MslProjectSerializer {
         m.put("flipV", sym.isFlipV());
         m.put("zIndex", sym.getZIndex());
         m.put("tooltip", sym.getTooltip());
+        m.put("showLabel", sym.isShowLabel());
+        m.put("labelPosition", sym.getLabelPosition().name());
+        m.put("labelOffsetX", sym.getLabelOffsetX());
+        m.put("labelOffsetY", sym.getLabelOffsetY());
+        m.put("showValueReadout", sym.isShowValueReadout());
         m.put("properties", new LinkedHashMap<>(sym.getProperties()));
         m.put("tagBindings", new LinkedHashMap<>(sym.getTagBindings()));
 
@@ -342,6 +366,12 @@ public final class MslProjectSerializer {
         sym.setFlipV(getBoolean(m, "flipV", false));
         sym.setZIndex(getInt(m, "zIndex", 0));
         sym.setTooltip(getString(m, "tooltip", ""));
+        sym.setShowLabel(getBoolean(m, "showLabel", !ScadaSymbolInstance.isDefaultHiddenLabelType(sym.getSymbolType())));
+        sym.setLabelPosition(parseEnum(ScadaSymbolInstance.LabelPosition.class,
+                getString(m, "labelPosition", "BOTTOM"), ScadaSymbolInstance.LabelPosition.BOTTOM));
+        sym.setLabelOffsetX(getInt(m, "labelOffsetX", 0));
+        sym.setLabelOffsetY(getInt(m, "labelOffsetY", 0));
+        sym.setShowValueReadout(getBoolean(m, "showValueReadout", true));
 
         Map<String, Object> propsMap = getMap(m, "properties");
         if (propsMap != null) {
@@ -386,8 +416,12 @@ public final class MslProjectSerializer {
         m.put("fluidType", pipe.getFluidType().name());
         m.put("voltageOrSignal", pipe.getVoltageOrSignal());
         m.put("autoFlow", pipe.isAutoFlow());
+        m.put("flowMode", pipe.getFlowMode().name());
         m.put("flowTag", pipe.getFlowTag());
         m.put("label", pipe.getLabel());
+        m.put("showLabel", pipe.isShowLabel());
+        m.put("customColorHex", pipe.getCustomColorHex());
+        m.put("showFlanges", pipe.isShowFlanges());
 
         List<Object> verts = new ArrayList<>();
         for (GridPoint gp : pipe.getVertices()) {
@@ -411,9 +445,16 @@ public final class MslProjectSerializer {
         pipe.setDiameter(parseEnum(PipeDiameter.class, getString(m, "diameter", "MEDIUM"), PipeDiameter.MEDIUM));
         pipe.setFluidType(parseEnum(FluidType.class, getString(m, "fluidType", "WATER"), FluidType.WATER));
         pipe.setVoltageOrSignal(getString(m, "voltageOrSignal", "400V 3~ AC"));
-        pipe.setAutoFlow(getBoolean(m, "autoFlow", true));
+        boolean autoFlow = getBoolean(m, "autoFlow", true);
+        pipe.setAutoFlow(autoFlow);
+        if (m.containsKey("flowMode")) {
+            pipe.setFlowMode(parseEnum(ScadaPipe.FlowMode.class, getString(m, "flowMode", "AUTO"), ScadaPipe.FlowMode.AUTO));
+        }
         pipe.setFlowTag(getString(m, "flowTag", ""));
         pipe.setLabel(getString(m, "label", ""));
+        pipe.setShowLabel(getBoolean(m, "showLabel", true));
+        pipe.setCustomColorHex(getString(m, "customColorHex", ""));
+        pipe.setShowFlanges(getBoolean(m, "showFlanges", false));
 
         for (Object item : getList(m, "vertices")) {
             if (item instanceof Map<?, ?> vmRaw) {
@@ -433,8 +474,8 @@ public final class MslProjectSerializer {
         m.put("gridY", g.getGridY());
         m.put("gridW", g.getGridW());
         m.put("gridH", g.getGridH());
-        m.put("strokeColor", String.format("#%06X", g.getStrokeColor().getRGB() & 0xFFFFFF));
-        m.put("fillColor", String.format("#%06X", g.getFillColor().getRGB() & 0xFFFFFF));
+        m.put("strokeColor", formatHexColor(g.getStrokeColor()));
+        m.put("fillColor", formatHexColor(g.getFillColor()));
         m.put("filled", g.isFilled());
         m.put("strokeWidth", g.getStrokeWidth());
         m.put("dashed", g.isDashed());
@@ -446,6 +487,14 @@ public final class MslProjectSerializer {
         m.put("preserveAspectRatio", g.isPreserveAspectRatio());
         m.put("opacity", g.getOpacity());
         return m;
+    }
+
+    private static String formatHexColor(Color c) {
+        if (c == null) return "#000000";
+        if (c.getAlpha() < 255) {
+            return String.format("#%08X", c.getRGB());
+        }
+        return String.format("#%06X", c.getRGB() & 0xFFFFFF);
     }
 
     private static ScadaGraphicElement deserializeGraphic(Map<String, Object> m) {

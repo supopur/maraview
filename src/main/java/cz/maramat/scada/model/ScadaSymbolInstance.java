@@ -10,6 +10,29 @@ import java.util.UUID;
  * Placed SCADA equipment, instrumentation, or operator control symbol on a ScadaScreen.
  */
 public class ScadaSymbolInstance {
+    public enum LabelPosition {
+        BOTTOM("Bottom"),
+        TOP("Top"),
+        LEFT("Left"),
+        RIGHT("Right"),
+        INSIDE("Inside");
+
+        private final String displayName;
+
+        LabelPosition(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String toString() {
+            return displayName;
+        }
+    }
+
     private String id;
     private String symbolType;
     private String name;
@@ -22,6 +45,11 @@ public class ScadaSymbolInstance {
     private boolean flipV;
     private int zIndex;
     private String tooltip = "";
+    private boolean showLabel = true;
+    private LabelPosition labelPosition = LabelPosition.BOTTOM;
+    private int labelOffsetX;
+    private int labelOffsetY;
+    private boolean showValueReadout = true;
     private final Map<String, String> properties = new LinkedHashMap<>();
     private final Map<String, String> tagBindings = new LinkedHashMap<>();
     private final List<PipePort> ports = new ArrayList<>();
@@ -37,11 +65,23 @@ public class ScadaSymbolInstance {
     public ScadaSymbolInstance(String symbolType, String name, int gridX, int gridY, int gridW, int gridH) {
         this.id = UUID.randomUUID().toString();
         this.symbolType = (symbolType == null || symbolType.isBlank()) ? "Generic" : symbolType.trim();
-        this.name = (name == null || name.isBlank()) ? this.symbolType : name.trim();
+        this.name = (name == null) ? this.symbolType : name.trim();
         this.gridX = gridX;
         this.gridY = gridY;
         this.gridW = Math.max(1, gridW);
         this.gridH = Math.max(1, gridH);
+        this.showLabel = !isDefaultHiddenLabelType(this.symbolType);
+    }
+
+    public static boolean isDefaultHiddenLabelType(String symbolType) {
+        if (symbolType == null) return false;
+        return switch (symbolType) {
+            case "TeeFitting", "ElbowFitting", "ReducerFitting", "FlangeFitting",
+                 "Coupling", "ExpansionJoint", "Strainer", "ProcessFilter",
+                 "SteamTrap", "SightGlass", "AirDirtSeparator", "AirFilter",
+                 "ExpansionVessel", "Inlet", "Outlet" -> true;
+            default -> false;
+        };
     }
 
     public String getProperty(String key, String fallback) {
@@ -67,6 +107,11 @@ public class ScadaSymbolInstance {
         copy.flipV = this.flipV;
         copy.zIndex = this.zIndex;
         copy.tooltip = this.tooltip;
+        copy.showLabel = this.showLabel;
+        copy.labelPosition = this.labelPosition;
+        copy.labelOffsetX = this.labelOffsetX;
+        copy.labelOffsetY = this.labelOffsetY;
+        copy.showValueReadout = this.showValueReadout;
         copy.properties.putAll(this.properties);
         copy.tagBindings.putAll(this.tagBindings);
         copy.ports.addAll(this.ports);
@@ -197,6 +242,46 @@ public class ScadaSymbolInstance {
 
     public void setTooltip(String tooltip) {
         this.tooltip = (tooltip == null) ? "" : tooltip;
+    }
+
+    public boolean isShowLabel() {
+        return showLabel;
+    }
+
+    public void setShowLabel(boolean showLabel) {
+        this.showLabel = showLabel;
+    }
+
+    public LabelPosition getLabelPosition() {
+        return labelPosition;
+    }
+
+    public void setLabelPosition(LabelPosition labelPosition) {
+        this.labelPosition = (labelPosition == null) ? LabelPosition.BOTTOM : labelPosition;
+    }
+
+    public int getLabelOffsetX() {
+        return labelOffsetX;
+    }
+
+    public void setLabelOffsetX(int labelOffsetX) {
+        this.labelOffsetX = labelOffsetX;
+    }
+
+    public int getLabelOffsetY() {
+        return labelOffsetY;
+    }
+
+    public void setLabelOffsetY(int labelOffsetY) {
+        this.labelOffsetY = labelOffsetY;
+    }
+
+    public boolean isShowValueReadout() {
+        return showValueReadout;
+    }
+
+    public void setShowValueReadout(boolean showValueReadout) {
+        this.showValueReadout = showValueReadout;
     }
 
     public Map<String, String> getProperties() {

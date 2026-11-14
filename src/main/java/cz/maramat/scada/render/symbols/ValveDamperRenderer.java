@@ -300,8 +300,11 @@ public final class ValveDamperRenderer {
     }
 
     private static void paintValveBowtieBody(Graphics2D g, double cx, double cy, int w, int h, boolean open) {
-        double halfW = w * 0.50;
-        double halfH = h * 0.24;
+        double stubH = Math.max(4.5, Math.min(9.0, h * 0.20));
+        ScadaShader.paintCylinderH(g, 0, cy - stubH / 2.0, w, stubH, Material.PIPE_WALL);
+
+        double halfW = w * 0.34;
+        double halfH = h * 0.18;
         Path2D.Double bowtie = new Path2D.Double();
         bowtie.moveTo(cx - halfW, cy - halfH);
         bowtie.lineTo(cx + halfW, cy + halfH);

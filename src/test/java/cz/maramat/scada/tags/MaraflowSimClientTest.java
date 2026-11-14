@@ -13,9 +13,11 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -142,5 +144,102 @@ class MaraflowSimClientTest {
 
         MaraflowSimClient.SimStatus offlineProbe = MaraflowSimClient.testConnection("127.0.0.1", 1);
         assertFalse(offlineProbe.online());
+    }
+
+    @Test
+    void pollStatusAndOperandsUsesDeltaProtocolAndFallsBackOnErr() throws Exception {
+        // 1. Server supporting SUB + POLL
+        AtomicInteger subCount = new AtomicInteger(0);
+        AtomicInteger pollCount = new AtomicInteger(0);
+        AtomicBoolean runDeltaServer = new AtomicBoolean(true);
+        try (ServerSocket ss = new ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))) {
+            int port = ss.getLocalPort();
+            Thread t = Thread.ofVirtual().start(() -> {
+                while (runDeltaServer.get() && !ss.isClosed()) {
+                    try (Socket s = ss.accept();
+                         BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+                         PrintWriter out = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true)) {
+                        String line;
+                        while ((line = in.readLine()) != null) {
+                            if (line.startsWith("SUB")) {
+                                subCount.incrementAndGet();
+                                out.println("OK 2");
+                            } else if ("POLL".equals(line.trim())) {
+                                int n = pollCount.incrementAndGet();
+                                if (n == 1) {
+                                    out.println("OK state=RUNNING estop=0 speed=1.0 project=Plant | 0=1.0 1=22.5");
+                                } else if (n == 2) {
+                                    out.println("OK state=RUNNING estop=0 speed=1.0 project=Plant |");
+                                } else {
+                                    out.println("OK state=RUNNING estop=0 speed=1.0 project=Plant | 1=23.5");
+                                }
+                            } else {
+                                out.println("ERR Unexpected");
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
+
+            try (MaraflowSimClient client = new MaraflowSimClient("127.0.0.1", port)) {
+                Map<String, Double> r1 = client.pollStatusAndOperands(List.of("Run", "Temp"));
+                assertEquals(1.0, r1.get("Run"));
+                assertEquals(22.5, r1.get("Temp"));
+                assertEquals("RUNNING", client.getLastStatus().simState());
+
+                // Empty delta keeps full cached view without re-subscribing
+                Map<String, Double> r2 = client.pollStatusAndOperands(List.of("Run", "Temp"));
+                assertEquals(1.0, r2.get("Run"));
+                assertEquals(22.5, r2.get("Temp"));
+
+                // Partial delta updates only key 1
+                Map<String, Double> r3 = client.pollStatusAndOperands(List.of("Run", "Temp"));
+                assertEquals(1.0, r3.get("Run"));
+                assertEquals(23.5, r3.get("Temp"));
+                assertEquals(1, subCount.get(), "SUB must only be sent once when key list is unchanged");
+                assertEquals(3, pollCount.get());
+            } finally {
+                runDeltaServer.set(false);
+                t.interrupt();
+            }
+        }
+
+        // 2. Legacy server without SUB/POLL -> automatic fallback to STATUS + MGET
+        AtomicBoolean runLegacyServer = new AtomicBoolean(true);
+        try (ServerSocket ss = new ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))) {
+            int port = ss.getLocalPort();
+            Thread t = Thread.ofVirtual().start(() -> {
+                while (runLegacyServer.get() && !ss.isClosed()) {
+                    try (Socket s = ss.accept();
+                         BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+                         PrintWriter out = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true)) {
+                        String line;
+                        while ((line = in.readLine()) != null) {
+                            if (line.startsWith("SUB") || line.startsWith("POLL")) {
+                                out.println("ERR Unknown command");
+                            } else if ("STATUS".equals(line.trim())) {
+                                out.println("OK state=PAUSED estop=0 speed=1.0 project=Legacy");
+                            } else if (line.startsWith("MGET")) {
+                                out.println("OK 0.0 41.2");
+                            } else {
+                                out.println("ERR");
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
+
+            try (MaraflowSimClient client = new MaraflowSimClient("127.0.0.1", port)) {
+                Map<String, Double> res = client.pollStatusAndOperands(List.of("A", "B"));
+                assertEquals(0.0, res.get("A"));
+                assertEquals(41.2, res.get("B"));
+                assertEquals("PAUSED", client.getLastStatus().simState());
+            } finally {
+                runLegacyServer.set(false);
+                t.interrupt();
+            }
+        }
     }
 }

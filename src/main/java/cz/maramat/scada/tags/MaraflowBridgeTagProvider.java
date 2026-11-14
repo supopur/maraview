@@ -1,7 +1,9 @@
 package cz.maramat.scada.tags;
 
+import cz.maramat.scada.model.DataType;
 import cz.maramat.scada.model.ScadaProject;
 
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -20,13 +22,24 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
     public record Snapshot(Map<String, Double> values, boolean online) {
     }
 
+    private static final double FLOAT_DEADBAND = 1e-4;
+
     private final PlcTagEndpoint endpoint;
     private volatile Executor writeExecutor;
     private final AtomicLong revision = new AtomicLong(0L);
+    private final Set<String> lastChangedTagNames = new LinkedHashSet<>();
 
     @Override
     public long getRevision() {
         return revision.get();
+    }
+
+    /**
+     * Returns an unmodifiable view of tag names whose value or quality changed
+     * on the most recent {@link #applySnapshot} call.
+     */
+    public Set<String> getLastChangedTagNames() {
+        return Collections.unmodifiableSet(lastChangedTagNames);
     }
 
     public MaraflowBridgeTagProvider(PlcTagEndpoint endpoint) {
@@ -69,7 +82,7 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
      * Fetches external operand values from the endpoint; safe to call from a background thread.
      */
     public Snapshot fetchSnapshot(ScadaProject project) {
-        if (project == null || endpoint == null || !endpoint.isOnline()) {
+        if (project == null || endpoint == null) {
             return new Snapshot(Map.of(), false);
         }
         Set<String> refs = new LinkedHashSet<>();
@@ -77,6 +90,13 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
             if (tag.getSourceType() != TagSourceType.INTERNAL) {
                 refs.add(resolveEndpointRef(tag));
             }
+        }
+        if (endpoint instanceof MaraflowSimClient simClient) {
+            Map<String, Double> values = simClient.pollStatusAndOperands(refs);
+            return new Snapshot(values, simClient.isOnline());
+        }
+        if (!endpoint.isOnline()) {
+            return new Snapshot(Map.of(), false);
         }
         if (refs.isEmpty()) {
             return new Snapshot(Map.of(), true);
@@ -91,6 +111,7 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
      * @return true if any tag value or quality changed
      */
     public boolean applySnapshot(ScadaProject project, Snapshot snapshot) {
+        lastChangedTagNames.clear();
         if (project == null) return false;
         boolean online = snapshot != null && snapshot.online();
         Map<String, Double> values = (snapshot != null && snapshot.values() != null) ? snapshot.values() : Map.of();
@@ -99,6 +120,7 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
             if (tag.getSourceType() == TagSourceType.INTERNAL) {
                 if (tag.getRuntimeQuality() != TagQuality.GOOD) {
                     tag.setRuntimeQuality(TagQuality.GOOD);
+                    lastChangedTagNames.add(tag.getName());
                     changed = true;
                 }
                 continue;
@@ -106,18 +128,24 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
             if (!online) {
                 if (tag.getRuntimeQuality() != TagQuality.DISCONNECTED) {
                     tag.setRuntimeQuality(TagQuality.DISCONNECTED);
+                    lastChangedTagNames.add(tag.getName());
                     changed = true;
                 }
                 continue;
             }
+            boolean tagChanged = false;
             String ref = resolveEndpointRef(tag);
             Double val = values.get(ref);
-            if (val != null && Double.compare(tag.getRuntimeValue(), val) != 0) {
+            if (val != null && isSignificantChange(tag, val)) {
                 tag.setRuntimeValue(val);
-                changed = true;
+                tagChanged = true;
             }
             if (tag.getRuntimeQuality() != TagQuality.GOOD) {
                 tag.setRuntimeQuality(TagQuality.GOOD);
+                tagChanged = true;
+            }
+            if (tagChanged) {
+                lastChangedTagNames.add(tag.getName());
                 changed = true;
             }
         }
@@ -125,6 +153,17 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
             revision.incrementAndGet();
         }
         return changed;
+    }
+
+    private static boolean isSignificantChange(ScadaTag tag, double nextVal) {
+        double prev = tag.getRuntimeValue();
+        if (Double.isNaN(prev) || Double.isNaN(nextVal)) {
+            return Double.isNaN(prev) != Double.isNaN(nextVal);
+        }
+        if (tag.getDataType() == DataType.FLOAT) {
+            return Math.abs(prev - nextVal) >= FLOAT_DEADBAND;
+        }
+        return Double.compare(prev, nextVal) != 0;
     }
 
     @Override

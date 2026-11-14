@@ -4,9 +4,10 @@ package cz.maramat.scada.model;
  * Standard pipe outer diameters in grid units (G).
  */
 public enum PipeDiameter {
-    SMALL("Small (1G)", 1.0),
-    MEDIUM("Medium (1.5G)", 1.5),
-    LARGE("Large (2G)", 2.0);
+    SMALL("Small (DN25)", 0.65),
+    MEDIUM("Medium (DN50)", 0.90),
+    LARGE("Large (DN100)", 1.25),
+    XLARGE("Extra Large (DN150)", 1.60);
 
     private final String displayName;
     private final double gridUnits;

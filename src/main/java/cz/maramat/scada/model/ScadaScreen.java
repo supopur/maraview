@@ -61,6 +61,14 @@ public class ScadaScreen {
         if (hex == null || hex.isBlank()) return fallback;
         String clean = hex.trim();
         if (clean.startsWith("#")) clean = clean.substring(1);
+        if (clean.length() == 8) {
+            try {
+                int argb = (int) Long.parseLong(clean, 16);
+                return new Color(argb, true);
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
         if (clean.length() != 6) return fallback;
         try {
             int rgb = Integer.parseInt(clean, 16);
@@ -74,9 +82,9 @@ public class ScadaScreen {
         if (hex == null || hex.isBlank()) return fallback;
         String clean = hex.trim();
         if (clean.startsWith("#")) clean = clean.substring(1);
-        if (clean.length() != 6) return fallback;
+        if (clean.length() != 6 && clean.length() != 8) return fallback;
         try {
-            Integer.parseInt(clean, 16);
+            Long.parseLong(clean, 16);
             return "#" + clean.toUpperCase();
         } catch (NumberFormatException ignored) {
             return fallback;

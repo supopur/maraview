@@ -25,20 +25,29 @@ public class UndoManager50 {
 
     private final Deque<Snapshot> undoStack = new ArrayDeque<>();
     private final Deque<Snapshot> redoStack = new ArrayDeque<>();
-    private final List<Runnable> listeners = new ArrayList<>();
+    private final List<Runnable> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public void addChangeListener(Runnable listener) {
-        if (listener != null) {
+        if (listener != null && !listeners.contains(listener)) {
             listeners.add(listener);
         }
     }
 
+    public void removeChangeListener(Runnable listener) {
+        listeners.remove(listener);
+    }
+
     public void recordSnapshot(String description, ScadaScreen screen) {
         if (screen == null) return;
+        recordSnapshot(capture(description, screen));
+    }
+
+    public void recordSnapshot(Snapshot snapshot) {
+        if (snapshot == null) return;
         if (undoStack.size() >= MAX_STEPS) {
             undoStack.removeLast();
         }
-        undoStack.push(capture(description, screen));
+        undoStack.push(snapshot);
         redoStack.clear();
         notifyListeners();
     }
@@ -83,7 +92,7 @@ public class UndoManager50 {
         notifyListeners();
     }
 
-    private static Snapshot capture(String description, ScadaScreen screen) {
+    public static Snapshot capture(String description, ScadaScreen screen) {
         List<ScadaSymbolInstance> symCopies = new ArrayList<>(screen.getSymbols().size());
         for (ScadaSymbolInstance s : screen.getSymbols()) {
             symCopies.add(s.copy());

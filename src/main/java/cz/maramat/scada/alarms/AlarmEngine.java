@@ -19,6 +19,7 @@ public class AlarmEngine {
 
     public synchronized void evaluate(ScadaProject project, long nowMs) {
         if (project == null) return;
+        entries.keySet().retainAll(project.getTags().keySet());
         for (ScadaTag tag : project.getTags().values()) {
             AlarmConfig cfg = tag.getAlarmConfig();
             if (cfg == null || !cfg.isEnabled()) {
@@ -88,6 +89,9 @@ public class AlarmEngine {
     }
 
     private static Severity checkThreshold(AlarmConfig cfg, double val) {
+        if (Double.isNaN(val)) {
+            return null;
+        }
         if (cfg.isFaultOnTrue() && val != 0.0) {
             return Severity.FAULT;
         }

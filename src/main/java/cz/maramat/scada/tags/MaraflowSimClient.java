@@ -44,6 +44,9 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
 
     private final Object ioLock = new Object();
     private final Map<String, Double> cache = new ConcurrentHashMap<>();
+    private final List<String> subscribedKeys = new ArrayList<>();
+    private boolean subscriptionActive = false;
+    private boolean pollDeltaSupported = true;
 
     private volatile String host = "127.0.0.1";
     private volatile int port = CommSettings.DEFAULT_MARAFLOW_SIM_PORT;
@@ -127,15 +130,19 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
                 return lastStatus;
             }
             try {
-                String resp = sendCommandLocked("STATUS");
-                SimStatus parsed = parseStatusResponse(resp);
-                this.lastStatus = parsed;
-                return parsed;
+                return refreshStatusLocked();
             } catch (IOException ex) {
                 closeSocketLocked(ex.getMessage());
                 return lastStatus;
             }
         }
+    }
+
+    private SimStatus refreshStatusLocked() throws IOException {
+        String resp = sendCommandLocked("STATUS");
+        SimStatus parsed = parseStatusResponse(resp);
+        this.lastStatus = parsed;
+        return parsed;
     }
 
     public boolean ping() {
@@ -183,13 +190,10 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
             return 0.0;
         }
         String key = operandOrAddress.trim();
-        Double cached = cache.get(key);
-        if (cached != null) {
-            return cached;
-        }
         synchronized (ioLock) {
             if (!ensureConnectedLocked()) {
-                return 0.0;
+                Double cached = cache.get(key);
+                return cached != null ? cached : 0.0;
             }
             try {
                 String resp = sendCommandLocked("GET " + encode(key));
@@ -202,15 +206,84 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
                 closeSocketLocked(ex.getMessage());
             } catch (NumberFormatException ignored) {
             }
-            return 0.0;
+            Double cached = cache.get(key);
+            return cached != null ? cached : 0.0;
         }
     }
 
     @Override
     public Map<String, Double> readOperands(Collection<String> operandsOrAddresses) {
-        Map<String, Double> result = new LinkedHashMap<>();
+        List<String> keys = normalizeKeys(operandsOrAddresses);
+        if (keys.isEmpty()) {
+            return new LinkedHashMap<>();
+        }
+        synchronized (ioLock) {
+            if (!ensureConnectedLocked()) {
+                return new LinkedHashMap<>();
+            }
+            try {
+                return readOperandsLocked(keys);
+            } catch (IOException ex) {
+                closeSocketLocked(ex.getMessage());
+                return new LinkedHashMap<>();
+            }
+        }
+    }
+
+    /**
+     * Fetches simulation status and all subscribed operand values using the server's
+     * {@code SUB}/{@code POLL} delta protocol when available (one TCP round-trip per poll),
+     * falling back transparently to {@code STATUS} + {@code MGET} against older servers.
+     */
+    public Map<String, Double> pollStatusAndOperands(Collection<String> operandsOrAddresses) {
+        List<String> keys = normalizeKeys(operandsOrAddresses);
+        synchronized (ioLock) {
+            if (!ensureConnectedLocked()) {
+                return Map.of();
+            }
+            try {
+                if (pollDeltaSupported) {
+                    if (!subscriptionActive || !subscribedKeys.equals(keys)) {
+                        StringBuilder subCmd = new StringBuilder("SUB");
+                        for (String k : keys) {
+                            subCmd.append(' ').append(encode(k));
+                        }
+                        String subResp = sendCommandLocked(subCmd.toString());
+                        if (subResp != null && subResp.startsWith("OK")) {
+                            subscribedKeys.clear();
+                            subscribedKeys.addAll(keys);
+                            subscriptionActive = true;
+                        } else {
+                            pollDeltaSupported = false;
+                            subscriptionActive = false;
+                            subscribedKeys.clear();
+                        }
+                    }
+                    if (pollDeltaSupported && subscriptionActive) {
+                        String pollResp = sendCommandLocked("POLL");
+                        if (pollResp != null && pollResp.startsWith("OK")) {
+                            return applyPollResponseLocked(pollResp, keys);
+                        }
+                        pollDeltaSupported = false;
+                        subscriptionActive = false;
+                        subscribedKeys.clear();
+                    }
+                }
+                refreshStatusLocked();
+                if (keys.isEmpty()) {
+                    return Map.of();
+                }
+                return readOperandsLocked(keys);
+            } catch (IOException ex) {
+                closeSocketLocked(ex.getMessage());
+                return Map.of();
+            }
+        }
+    }
+
+    private static List<String> normalizeKeys(Collection<String> operandsOrAddresses) {
         if (operandsOrAddresses == null || operandsOrAddresses.isEmpty()) {
-            return result;
+            return List.of();
         }
         List<String> keys = new ArrayList<>(operandsOrAddresses.size());
         for (String op : operandsOrAddresses) {
@@ -218,34 +291,61 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
                 keys.add(op.trim());
             }
         }
-        if (keys.isEmpty()) {
-            return result;
-        }
+        return keys;
+    }
 
-        synchronized (ioLock) {
-            if (!ensureConnectedLocked()) {
-                return result;
-            }
-            StringBuilder cmd = new StringBuilder("MGET");
-            for (String k : keys) {
-                cmd.append(' ').append(encode(k));
-            }
-            try {
-                String resp = sendCommandLocked(cmd.toString());
-                if (resp != null && resp.startsWith("OK")) {
-                    String[] parts = resp.split("\\s+");
-                    for (int i = 0; i < keys.size() && (i + 1) < parts.length; i++) {
-                        try {
-                            double val = Double.parseDouble(parts[i + 1]);
-                            String k = keys.get(i);
-                            cache.put(k, val);
-                            result.put(k, val);
-                        } catch (NumberFormatException ignored) {
-                        }
-                    }
+    private Map<String, Double> readOperandsLocked(List<String> keys) throws IOException {
+        Map<String, Double> result = new LinkedHashMap<>();
+        StringBuilder cmd = new StringBuilder("MGET");
+        for (String k : keys) {
+            cmd.append(' ').append(encode(k));
+        }
+        String resp = sendCommandLocked(cmd.toString());
+        if (resp != null && resp.startsWith("OK")) {
+            String[] parts = resp.split("\\s+");
+            for (int i = 0; i < keys.size() && (i + 1) < parts.length; i++) {
+                try {
+                    double val = Double.parseDouble(parts[i + 1]);
+                    String k = keys.get(i);
+                    cache.put(k, val);
+                    result.put(k, val);
+                } catch (NumberFormatException ignored) {
                 }
-            } catch (IOException ex) {
-                closeSocketLocked(ex.getMessage());
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Double> applyPollResponseLocked(String resp, List<String> keys) {
+        String[] tokens = resp.split("\\s+");
+        int pipeIdx = -1;
+        for (int i = 1; i < tokens.length; i++) {
+            if ("|".equals(tokens[i])) {
+                pipeIdx = i;
+                break;
+            }
+        }
+        int statusEnd = (pipeIdx >= 0) ? pipeIdx : tokens.length;
+        this.lastStatus = parseStatusTokens(tokens, 1, statusEnd);
+        if (pipeIdx >= 0) {
+            for (int i = pipeIdx + 1; i < tokens.length; i++) {
+                String tok = tokens[i];
+                int eq = tok.indexOf('=');
+                if (eq <= 0 || eq >= tok.length() - 1) continue;
+                try {
+                    int idx = Integer.parseInt(tok.substring(0, eq));
+                    if (idx < 0 || idx >= subscribedKeys.size()) continue;
+                    double val = Double.parseDouble(tok.substring(eq + 1));
+                    cache.put(subscribedKeys.get(idx), val);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        Map<String, Double> result = new LinkedHashMap<>(keys.size() * 2);
+        for (String k : keys) {
+            Double val = cache.get(k);
+            if (val != null) {
+                result.put(k, val);
             }
         }
         return result;
@@ -257,13 +357,15 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
             return;
         }
         String key = operandOrAddress.trim();
-        cache.put(key, value);
         synchronized (ioLock) {
             if (!ensureConnectedLocked()) {
                 return;
             }
             try {
-                sendCommandLocked("SET " + encode(key) + " " + value);
+                String resp = sendCommandLocked("SET " + encode(key) + " " + value);
+                if (resp != null && resp.startsWith("OK")) {
+                    cache.put(key, value);
+                }
             } catch (IOException ex) {
                 closeSocketLocked(ex.getMessage());
             }
@@ -342,6 +444,9 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
 
     private void closeSocketLocked(String reason) {
         this.connected = false;
+        this.subscriptionActive = false;
+        this.pollDeltaSupported = true;
+        this.subscribedKeys.clear();
         this.lastStatus = SimStatus.offline(reason);
         if (socket != null) {
             try {
@@ -358,12 +463,16 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         if (resp == null || !resp.startsWith("OK")) {
             return SimStatus.offline(resp == null ? "Empty response" : resp);
         }
+        String[] tokens = resp.split("\\s+");
+        return parseStatusTokens(tokens, 1, tokens.length);
+    }
+
+    private static SimStatus parseStatusTokens(String[] tokens, int startIdx, int endExclusive) {
         String state = "UNKNOWN";
         boolean estop = false;
         double speed = 1.0;
         String projectName = "";
-        String[] tokens = resp.split("\\s+");
-        for (int i = 1; i < tokens.length; i++) {
+        for (int i = startIdx; i < endExclusive; i++) {
             int eq = tokens[i].indexOf('=');
             if (eq <= 0) continue;
             String k = tokens[i].substring(0, eq);

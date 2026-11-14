@@ -36,6 +36,8 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
     private static final Color TREND_GRID_COLOR = new Color(0x2E, 0x35, 0x3E);
     private static final Color TREND_LINE_COLOR = new Color(0x2E, 0xCC, 0x71);
     private static final java.awt.Stroke TREND_STROKE = new BasicStroke(1.5f);
+    private static final java.awt.Stroke NEEDLE_STROKE = new BasicStroke(1.6f);
+    private static final java.awt.Stroke OUTLINE_STROKE = new BasicStroke(1.0f);
     private static final Color NUM_EDIT_BG = new Color(0x1B, 0x26, 0x31);
     private static final Color NUM_EDIT_BORDER = new Color(0x54, 0x99, 0xC7);
     private static final Color NUM_EDIT_TEXT = new Color(0xAE, 0xD6, 0xF1);
@@ -69,9 +71,21 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
                 sym.getProperties().getOrDefault("unit", ""));
 
         switch (type) {
-            case "PressureSensor" -> paintPressureSensor(g, w, h, gPx, val, norm, units);
-            case "TempSensor" -> paintTempSensor(g, w, h, val, norm, units);
-            case "FlowMeter" -> paintFlowMeter(g, w, h, gPx, val, units);
+            case "PressureSensor" -> {
+                String txt = formatNumericText(val, units);
+                paintCachedDiscrete(g, layerCache, type, w, h,
+                        gPx + "|" + Math.round(norm * 270.0) + "|" + txt,
+                        cg -> paintPressureSensor(cg, w, h, gPx, val, norm, units));
+            }
+            case "TempSensor" -> {
+                String txt = String.format(Locale.US, "%.1f%s", val, units.isEmpty() ? "" : " " + units);
+                paintCachedDiscrete(g, layerCache, type, w, h,
+                        Math.round(norm * 100.0) + "|" + txt,
+                        cg -> paintTempSensor(cg, w, h, val, norm, units));
+            }
+            case "FlowMeter" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    gPx + "|" + formatNumericText(val, units),
+                    cg -> paintFlowMeter(cg, w, h, gPx, val, units));
             case "LevelSwitch" -> paintCachedDiscrete(g, layerCache, type, w, h,
                     gPx + "|" + (val != 0.0), cg -> paintLevelSwitch(cg, w, h, gPx, val != 0.0));
             case "ProximitySensor" -> paintCachedDiscrete(g, layerCache, type, w, h,
@@ -87,9 +101,15 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
                     String.valueOf(val != 0.0), cg -> paintEStopMushroom(cg, w, h, val != 0.0));
             case "PilotLamp" -> paintCachedDiscrete(g, layerCache, type, w, h,
                     (val != 0.0) + "|" + state.name(), cg -> paintPilotLamp(cg, w, h, val != 0.0, state));
-            case "NumericReadout" -> paintNumericBox(g, w, h, gPx, val, units, false);
-            case "NumericSetpoint" -> paintNumericBox(g, w, h, gPx, val, units, true);
-            case "BarGraph" -> paintBarGraph(g, w, h, norm, sym);
+            case "NumericReadout" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    gPx + "|" + formatNumericText(val, units),
+                    cg -> paintNumericBox(cg, w, h, gPx, val, units, false));
+            case "NumericSetpoint" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    gPx + "|" + formatNumericText(val, units),
+                    cg -> paintNumericBox(cg, w, h, gPx, val, units, true));
+            case "BarGraph" -> paintCachedDiscrete(g, layerCache, type, w, h,
+                    String.valueOf(Math.round((h - 8) * norm)),
+                    cg -> paintBarGraph(cg, w, h, norm, sym));
             case "TrendChart" -> paintTrendChart(g, sym.getId(), w, h, val, min, max, timeMs);
             default -> {
                 return false;
@@ -132,7 +152,7 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
         // Rotating needle (-135 deg to +135 deg)
         double angle = Math.toRadians(-225.0 + norm * 270.0);
         g.setColor(ScadaPalette.STATE_FAULT);
-        g.setStroke(new BasicStroke(1.6f));
+        g.setStroke(NEEDLE_STROKE);
         g.draw(new Line2D.Double(cx, cy, cx + Math.cos(angle) * dialR * 0.8, cy + Math.sin(angle) * dialR * 0.8));
         g.setColor(ScadaPalette.OUTLINE_DARK);
         g.fill(new Ellipse2D.Double(cx - 2, cy - 2, 4, 4));
@@ -151,7 +171,8 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
         g.setColor(new Color(0xC0, 0x39, 0x2B));
         g.fill(new Rectangle2D.Double(tubeX + 1, h * 0.14 + tubeH - fillH, tubeW - 2, fillH));
         g.setColor(Color.WHITE);
-        g.setFont(new Font(Font.MONOSPACED, Font.BOLD, Math.max(9, h / 5)));
+        int fontSize = Math.max(9, h / 5);
+        g.setFont(MONO_BOLD_FONTS.computeIfAbsent(fontSize, s -> new Font(Font.MONOSPACED, Font.BOLD, s)));
         String txt = String.format(Locale.US, "%.1f%s", val, units.isEmpty() ? "" : " " + units);
         g.drawString(txt, (float) (w * 0.46), (float) (h * 0.56));
     }
@@ -222,6 +243,13 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
         ScadaShader.paintLedIndicator(g, cx, cy, r * 0.70, col, lit);
     }
 
+    private static String formatNumericText(double val, String units) {
+        String u = (units == null || units.isEmpty()) ? "" : " " + units;
+        return (Math.abs(val - Math.rint(val)) < 1e-4)
+                ? String.format(Locale.US, "%.0f%s", val, u)
+                : String.format(Locale.US, "%.2f%s", val, u);
+    }
+
     private static void paintNumericBox(Graphics2D g, int w, int h, int gPx, double val, String units, boolean editable) {
         paintNumericBox(g, 2, 2, w - 4, h - 4, gPx, val, units, editable);
     }
@@ -233,9 +261,7 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
         g.setColor(editable ? NUM_EDIT_BORDER : ScadaPalette.OUTLINE_DARK);
         g.drawRect(x, y, w, h);
 
-        String txt = (Math.abs(val - Math.rint(val)) < 1e-4)
-                ? String.format(Locale.US, "%.0f%s", val, units.isEmpty() ? "" : " " + units)
-                : String.format(Locale.US, "%.2f%s", val, units.isEmpty() ? "" : " " + units);
+        String txt = formatNumericText(val, units);
         g.setColor(editable ? NUM_EDIT_TEXT : NUM_RO_TEXT);
         int fontSize = Math.max(9, Math.min(h - 4, gPx + 2));
         Font font = MONO_BOLD_FONTS.computeIfAbsent(fontSize, s -> new Font(Font.MONOSPACED, Font.BOLD, s));
@@ -288,7 +314,7 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
             g.draw(path);
         }
         g.setColor(ScadaPalette.OUTLINE_DARK);
-        g.setStroke(new BasicStroke(1.0f));
+        g.setStroke(OUTLINE_STROKE);
         g.drawRect(2, 2, w - 4, h - 4);
     }
 

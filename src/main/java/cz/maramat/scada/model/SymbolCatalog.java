@@ -45,32 +45,32 @@ public final class SymbolCatalog {
 
     static {
         // 1. Piping & Valves
-        register("HandValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 4, 4, false, List.of(
+        register("HandValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 3, 3, 2, 2, true, List.of(
                 new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
         ));
-        register("SolenoidValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 5, 4, 5, false, List.of(
+        register("SolenoidValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 3, 4, 2, 3, true, List.of(
                 new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("coil", "Coil", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("ControlValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 5, 5, 5, 5, false, List.of(
+        register("ControlValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
                 new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("cmd", "0-10V Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("ThreeWayMixingValve", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 6, 6, 6, 6, false, List.of(
+        register("ThreeWayMixingValve", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 4, 4, 3, 3, true, List.of(
                 new PortSpec("a", "Port A (Hot)", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("ab", "Port AB (Mix)", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("b", "Port B (Bypass)", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE),
                 new PortSpec("cmd", "Actuator Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("TwoWayControlValve", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 5, 5, 5, 5, false, List.of(
+        register("TwoWayControlValve", "Piping & Valves", EquipmentDomain.HEATING_HVAC, 4, 4, 3, 3, true, List.of(
                 new PortSpec("inlet", "Inlet", 0.0, 0.6, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Outlet", 1.0, 0.6, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("cmd", "Actuator Cmd", 0.5, 0.0, CardinalDirection.NORTH, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("CheckValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 4, 4, false, List.of(
+        register("CheckValve", "Piping & Valves", EquipmentDomain.FLUID_EQUIPMENT, 3, 3, 2, 2, true, List.of(
                 new PortSpec("inlet", "Inlet", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Outlet", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
         ));
@@ -140,20 +140,20 @@ public final class SymbolCatalog {
         ));
 
         // 1b. Pipe Fittings
-        register("TeeFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
+        register("TeeFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 2, 2, 2, 2, true, List.of(
                 new PortSpec("a", "Left", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("b", "Right", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE),
                 new PortSpec("c", "Branch", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
         ));
-        register("ElbowFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
+        register("ElbowFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 2, 2, 2, 2, true, List.of(
                 new PortSpec("a", "In", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("b", "Out", 0.5, 1.0, CardinalDirection.SOUTH, ConnectionType.PIPE)
         ));
-        register("ReducerFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, true, List.of(
+        register("ReducerFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 3, 2, 2, 2, true, List.of(
                 new PortSpec("inlet", "Large End", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("outlet", "Small End", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
         ));
-        register("FlangeFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 3, 4, 3, 3, false, List.of(
+        register("FlangeFitting", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 2, 3, 2, 2, true, List.of(
                 new PortSpec("a", "Side A", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("b", "Side B", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
         ));
@@ -177,7 +177,7 @@ public final class SymbolCatalog {
                 new PortSpec("a", "Side A", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("b", "Side B", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
         ));
-        register("Coupling", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 4, 4, 3, 3, false, List.of(
+        register("Coupling", "Fittings", EquipmentDomain.FLUID_EQUIPMENT, 2, 2, 2, 2, true, List.of(
                 new PortSpec("a", "Side A", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.PIPE),
                 new PortSpec("b", "Side B", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.PIPE)
         ));
@@ -888,5 +888,102 @@ public final class SymbolCatalog {
         if (symbolType.equals("HumiditySensor")) return "%RH";
         if (symbolType.equals("Co2Sensor")) return "ppm";
         return "%";
+    }
+
+    /**
+     * Returns only the PLC tag roles that physically make sense for the given symbol type.
+     * Passive pipe fittings and static vessels return an empty list.
+     */
+    public static List<String> getRelevantTagRoles(String symbolType) {
+        if (symbolType == null) return List.of();
+        switch (symbolType) {
+            // Passive fittings, static vessels, and passive electrical sources have no PLC tags
+            case "TeeFitting", "ElbowFitting", "ReducerFitting", "FlangeFitting",
+                 "Coupling", "ExpansionJoint", "Strainer", "ProcessFilter",
+                 "SteamTrap", "SightGlass", "AirDirtSeparator", "AirFilter",
+                 "ExpansionVessel", "CheckValve", "Outlet",
+                 "PowerSource400V", "PowerSource230V", "PowerSource24V",
+                 "Transformer", "DistributionPanel" -> {
+                return List.of();
+            }
+            case "Inlet" -> {
+                return List.of("RunTag");
+            }
+            // Manual isolation valves: optional status feedback tag only
+            case "HandValve", "GateValve", "GlobeValve", "BallValve",
+                 "ButterflyValve", "NeedleValve", "PlugValve", "DiaphragmValve" -> {
+                return List.of("OpenTag");
+            }
+            // Binary actuated valves
+            case "SolenoidValve", "ZoneValve", "SafetyReliefValve", "FourWayValve", "ExpansionValve" -> {
+                return List.of("OpenTag", "FaultTag");
+            }
+            // Modulating valves & dampers
+            case "ControlValve", "TwoWayControlValve", "ThreeWayMixingValve",
+                 "MotorizedValve", "PneumaticValve", "Damper", "VavBox" -> {
+                return List.of("PositionTag", "FaultTag");
+            }
+            // Static heat exchangers & emitters: optional temperature readout only
+            case "PlateHeatExchanger", "ShellAndTubeHeatExchanger", "CoilHeatExchanger",
+                 "HeatingCoil", "CoolingCoil", "HeatRecovery", "Radiator",
+                 "FloorHeatingManifold", "UnderfloorHeatingZone", "SolarThermalCollector" -> {
+                return List.of("ValueTag");
+            }
+            // Operator controls: single target/state tag, no engineering scale
+            case "PushButton", "SelectorSwitch", "EStopMushroom", "PilotLamp" -> {
+                return List.of("RunTag");
+            }
+            case "NumericReadout", "NumericSetpoint", "BarGraph", "TrendChart" -> {
+                return List.of("ValueTag");
+            }
+            // Electrical switching & drives
+            case "CircuitBreaker", "Contactor", "OverloadRelay", "Fuse" -> {
+                return List.of("ClosedTag");
+            }
+            case "ElectricMotor", "VfdDrive" -> {
+                return List.of("RunTag", "SpeedTag", "FaultTag");
+            }
+            // Sensors & meters
+            case "TempSensor", "PressureSensor", "FlowMeter", "LevelTransmitter",
+                 "HumiditySensor", "Co2Sensor", "DifferentialPressure", "RoomThermostat",
+                 "Calorimeter", "WeatherStation", "EnergyMeter", "PowerMeter",
+                 "AnalogGauge", "PidController", "PlcController" -> {
+                return List.of("ValueTag");
+            }
+            default -> {
+                EquipmentDomain dom = getDomain(symbolType);
+                if (symbolType.contains("Tank") || symbolType.equals("HopperSilo") || symbolType.equals("OpenBasin")
+                        || symbolType.equals("Silo") || symbolType.equals("Hopper") || symbolType.equals("Reactor")
+                        || symbolType.equals("PrimaryClarifier") || symbolType.equals("SecondaryClarifier")
+                        || symbolType.equals("AerationBasin") || symbolType.equals("AnaerobicDigester")
+                        || symbolType.equals("SludgeThickener") || symbolType.equals("RefrigerantReceiver")) {
+                    return List.of("LevelTag");
+                }
+                if (symbolType.endsWith("Pump") || symbolType.contains("Fan") || symbolType.equals("AirBlower")
+                        || symbolType.contains("Compressor")) {
+                    return List.of("RunTag", "SpeedTag", "FaultTag");
+                }
+                if (dom == EquipmentDomain.HEATING_HVAC || dom == EquipmentDomain.FLUID_EQUIPMENT
+                        || dom == EquipmentDomain.WASTEWATER) {
+                    return List.of("RunTag", "ValueTag", "FaultTag");
+                }
+                return List.of("ValueTag");
+            }
+        }
+    }
+
+    public static boolean hasEngineeringScale(String symbolType) {
+        if (symbolType == null) return false;
+        if (symbolType.equals("PushButton") || symbolType.equals("SelectorSwitch")
+                || symbolType.equals("EStopMushroom") || symbolType.equals("PilotLamp")) {
+            return false;
+        }
+        EquipmentDomain dom = getDomain(symbolType);
+        if (dom == EquipmentDomain.MAR_SENSOR) return true;
+        if (symbolType.equals("NumericReadout") || symbolType.equals("NumericSetpoint")
+                || symbolType.equals("BarGraph") || symbolType.equals("TrendChart")) {
+            return true;
+        }
+        return symbolType.contains("Tank") || symbolType.equals("HopperSilo") || symbolType.equals("OpenBasin");
     }
 }

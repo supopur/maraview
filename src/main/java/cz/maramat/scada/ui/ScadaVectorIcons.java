@@ -20,6 +20,11 @@ public final class ScadaVectorIcons {
     private static final Color ACCENT_GREEN = new Color(0x14, 0x94, 0x14);
     private static final Color ACCENT_RED = new Color(0xB8, 0x14, 0x14);
     private static final Color ACCENT_AMBER = new Color(0xC8, 0x7A, 0x10);
+    private static final Color DISABLED_COLOR = new Color(0x99, 0x99, 0x99);
+    private static final Color CROSS_COLOR = new Color(0x33, 0x3C, 0x48);
+    private static final BasicStroke STROKE_1_2 = new BasicStroke(1.2f);
+    private static final BasicStroke STROKE_1_5 = new BasicStroke(1.5f);
+    private static final BasicStroke STROKE_PIPE = new BasicStroke(3.0f, BasicStroke.CAP_SQUARE, BasicStroke.JOIN_MITER);
 
     private ScadaVectorIcons() {
     }
@@ -39,7 +44,7 @@ public final class ScadaVectorIcons {
                     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
                     if (c != null && !c.isEnabled()) {
-                        g.setColor(new Color(0x99, 0x99, 0x99));
+                        g.setColor(DISABLED_COLOR);
                     }
                     painter.paint(g, w, h);
                 } finally {
@@ -65,8 +70,8 @@ public final class ScadaVectorIcons {
 
     public static Icon closePanelCrossIcon() {
         return icon(10, 10, (g, w, h) -> {
-            g.setColor(new Color(0x33, 0x3C, 0x48));
-            g.setStroke(new BasicStroke(1.5f));
+            g.setColor(CROSS_COLOR);
+            g.setStroke(STROKE_1_5);
             g.drawLine(2, 2, 8, 8);
             g.drawLine(8, 2, 2, 8);
         });
@@ -82,7 +87,7 @@ public final class ScadaVectorIcons {
             g.setColor(Color.WHITE);
             g.fillPolygon(arrow);
             g.setColor(INK);
-            g.setStroke(new BasicStroke(1.2f));
+            g.setStroke(STROKE_1_2);
             g.drawPolygon(arrow);
         });
     }
@@ -90,7 +95,7 @@ public final class ScadaVectorIcons {
     public static Icon pipe() {
         return icon((g, w, h) -> {
             g.setColor(ACCENT_BLUE);
-            g.setStroke(new BasicStroke(3.0f, BasicStroke.CAP_SQUARE, BasicStroke.JOIN_MITER));
+            g.setStroke(STROKE_PIPE);
             g.drawLine(3, 12, 3, 5);
             g.drawLine(3, 5, 12, 5);
             g.setColor(INK);

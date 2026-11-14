@@ -29,7 +29,28 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class GraphicElementRenderer {
 
-    private static final Map<String, BufferedImage> IMAGE_CACHE = new ConcurrentHashMap<>();
+    private static final int MAX_CACHED_IMAGES = 64;
+    private static final Map<String, BufferedImage> IMAGE_CACHE = java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
+                    if (size() > MAX_CACHED_IMAGES) {
+                        if (eldest.getValue() != null) eldest.getValue().flush();
+                        return true;
+                    }
+                    return false;
+                }
+            }
+    );
+
+    public static void clearImageCache() {
+        synchronized (IMAGE_CACHE) {
+            for (BufferedImage img : IMAGE_CACHE.values()) {
+                if (img != null) img.flush();
+            }
+            IMAGE_CACHE.clear();
+        }
+    }
 
     private GraphicElementRenderer() {
     }
@@ -180,13 +201,28 @@ public final class GraphicElementRenderer {
 
     private static BufferedImage decodeImage(String base64) {
         if (base64 == null || base64.isBlank()) return null;
-        return IMAGE_CACHE.computeIfAbsent(base64, key -> {
-            try {
-                byte[] bytes = Base64.getDecoder().decode(key);
-                return ImageIO.read(new ByteArrayInputStream(bytes));
-            } catch (Exception ignored) {
-                return null;
+        String key = digestKey(base64);
+        BufferedImage cached = IMAGE_CACHE.get(key);
+        if (cached != null) return cached;
+        try {
+            byte[] bytes = Base64.getDecoder().decode(base64);
+            BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
+            if (img != null) {
+                IMAGE_CACHE.put(key, img);
             }
-        });
+            return img;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String digestKey(String base64) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(base64.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(hash) + ":" + base64.length();
+        } catch (Exception e) {
+            return base64.length() + ":" + base64.hashCode();
+        }
     }
 }

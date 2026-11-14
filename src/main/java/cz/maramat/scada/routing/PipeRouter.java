@@ -14,7 +14,7 @@ import java.util.List;
  */
 public final class PipeRouter {
 
-    public static final int DEFAULT_FLANGE_CLEARANCE = 2;
+    public static final int DEFAULT_FLANGE_CLEARANCE = 1;
 
     private PipeRouter() {
     }
@@ -197,12 +197,26 @@ public final class PipeRouter {
                                       CardinalDirection sd, CardinalDirection dd, int c) {
         if (sd.isHorizontal()) {
             int offsetY = p1.y() + c * 2;
-            raw.add(new GridPoint(p1.x(), offsetY));
-            raw.add(new GridPoint(p2.x(), offsetY));
+            if (p1.x() == p2.x()) {
+                int stepX = p1.x() + sd.dx() * Math.abs(c);
+                raw.add(new GridPoint(stepX, p1.y()));
+                raw.add(new GridPoint(stepX, offsetY));
+                raw.add(new GridPoint(p2.x(), offsetY));
+            } else {
+                raw.add(new GridPoint(p1.x(), offsetY));
+                raw.add(new GridPoint(p2.x(), offsetY));
+            }
         } else {
             int offsetX = p1.x() + c * 2;
-            raw.add(new GridPoint(offsetX, p1.y()));
-            raw.add(new GridPoint(offsetX, p2.y()));
+            if (p1.y() == p2.y()) {
+                int stepY = p1.y() + sd.dy() * Math.abs(c);
+                raw.add(new GridPoint(p1.x(), stepY));
+                raw.add(new GridPoint(offsetX, stepY));
+                raw.add(new GridPoint(offsetX, p2.y()));
+            } else {
+                raw.add(new GridPoint(offsetX, p1.y()));
+                raw.add(new GridPoint(offsetX, p2.y()));
+            }
         }
         raw.add(p2);
     }

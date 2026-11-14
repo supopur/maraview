@@ -89,4 +89,36 @@ class RuntimeTagProviderTest {
         MaraflowBridgeTagProvider bridge = new MaraflowBridgeTagProvider(throwingOnRead);
         assertEquals(42.5, bridge.readTag(project, "Temp"));
     }
+
+    @Test
+    void floatDeadbandFiltersNoiseAndTracksChangedTags() {
+        ScadaProject project = new ScadaProject();
+        ScadaTag temp = new ScadaTag("T1", DataType.FLOAT, TagSourceType.MFL_LINK);
+        temp.setAddressOrRef("T1");
+        temp.setRuntimeValue(20.0);
+        ScadaTag run = new ScadaTag("Run", DataType.BOOL, TagSourceType.MFL_LINK);
+        run.setAddressOrRef("Run");
+        run.setRuntimeValue(1.0);
+        project.putTag(temp);
+        project.putTag(run);
+
+        MaraflowBridgeTagProvider bridge = new MaraflowBridgeTagProvider(null);
+
+        // Sub-deadband fluctuation (< 1e-4) must not mark tag changed or advance revision
+        long rev0 = bridge.getRevision();
+        boolean changedSmall = bridge.applySnapshot(project,
+                new MaraflowBridgeTagProvider.Snapshot(Map.of("T1", 20.00005, "Run", 1.0), true));
+        assertFalse(changedSmall);
+        assertEquals(rev0, bridge.getRevision());
+        assertTrue(bridge.getLastChangedTagNames().isEmpty());
+        assertEquals(20.0, temp.getRuntimeValue());
+
+        // Cumulative change >= 1e-4 triggers update ONLY for T1
+        boolean changedBig = bridge.applySnapshot(project,
+                new MaraflowBridgeTagProvider.Snapshot(Map.of("T1", 20.00012, "Run", 1.0), true));
+        assertTrue(changedBig);
+        assertEquals(rev0 + 1, bridge.getRevision());
+        assertEquals(20.00012, temp.getRuntimeValue());
+        assertEquals(java.util.Set.of("T1"), bridge.getLastChangedTagNames());
+    }
 }

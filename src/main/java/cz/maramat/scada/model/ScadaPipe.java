@@ -9,6 +9,28 @@ import java.util.UUID;
  * Orthogonal process pipe connecting equipment PipePorts or tee junctions on the integer grid.
  */
 public class ScadaPipe {
+    public enum FlowMode {
+        AUTO("Auto (Solver)"),
+        ALWAYS_ON("Always Flowing"),
+        ALWAYS_OFF("Always Stopped"),
+        TAG("Explicit Tag");
+
+        private final String displayName;
+
+        FlowMode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String toString() {
+            return displayName;
+        }
+    }
+
     private String id;
     private String sourceSymbolId;
     private String sourcePortId;
@@ -21,8 +43,12 @@ public class ScadaPipe {
     private FluidType fluidType = FluidType.WATER;
     private String voltageOrSignal = "400V 3~ AC";
     private boolean autoFlow = true;
+    private FlowMode flowMode = FlowMode.AUTO;
     private String flowTag = "";
     private String label = "";
+    private boolean showLabel = true;
+    private String customColorHex = "";
+    private boolean showFlanges = false;
 
     public ScadaPipe() {
         this.id = UUID.randomUUID().toString();
@@ -45,8 +71,12 @@ public class ScadaPipe {
         copy.fluidType = this.fluidType;
         copy.voltageOrSignal = this.voltageOrSignal;
         copy.autoFlow = this.autoFlow;
+        copy.flowMode = this.flowMode;
         copy.flowTag = this.flowTag;
         copy.label = this.label;
+        copy.showLabel = this.showLabel;
+        copy.customColorHex = this.customColorHex;
+        copy.showFlanges = this.showFlanges;
         return copy;
     }
 
@@ -135,6 +165,44 @@ public class ScadaPipe {
 
     public void setAutoFlow(boolean autoFlow) {
         this.autoFlow = autoFlow;
+        if (!autoFlow && this.flowMode == FlowMode.AUTO) {
+            this.flowMode = FlowMode.TAG;
+        } else if (autoFlow && this.flowMode == FlowMode.TAG) {
+            this.flowMode = FlowMode.AUTO;
+        }
+    }
+
+    public FlowMode getFlowMode() {
+        return flowMode;
+    }
+
+    public void setFlowMode(FlowMode flowMode) {
+        this.flowMode = (flowMode == null) ? FlowMode.AUTO : flowMode;
+        this.autoFlow = (this.flowMode == FlowMode.AUTO);
+    }
+
+    public boolean isShowLabel() {
+        return showLabel;
+    }
+
+    public void setShowLabel(boolean showLabel) {
+        this.showLabel = showLabel;
+    }
+
+    public String getCustomColorHex() {
+        return customColorHex;
+    }
+
+    public void setCustomColorHex(String customColorHex) {
+        this.customColorHex = (customColorHex == null) ? "" : customColorHex.trim();
+    }
+
+    public boolean isShowFlanges() {
+        return showFlanges;
+    }
+
+    public void setShowFlanges(boolean showFlanges) {
+        this.showFlanges = showFlanges;
     }
 
     public String getFlowTag() {

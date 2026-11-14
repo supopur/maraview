@@ -8,6 +8,7 @@ import cz.maramat.scada.model.SymbolCatalog;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -38,6 +39,9 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
     private final boolean resizable;
 
     private final JTextField nameField = new JTextField(16);
+    private final JCheckBox showLabelCheck = new JCheckBox("Show Name Label");
+    private final JComboBox<ScadaSymbolInstance.LabelPosition> labelPosCombo = new JComboBox<>(ScadaSymbolInstance.LabelPosition.values());
+    private boolean resetLabelOffset = false;
     private final JTextField tooltipField = new JTextField(16);
     private final JSpinner xSpin;
     private final JSpinner ySpin;
@@ -45,7 +49,11 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
     private final JSpinner hSpin;
     private final JComboBox<Integer> rotCombo = new JComboBox<>(new Integer[]{0, 90, 180, 270});
 
-    // Domain-specific fields
+    // Domain-specific & simulation-default fields
+    private JCheckBox manualStateCheck;
+    private String manualStateKey;
+    private JSpinner manualLevelOrPosSpin;
+    private String manualLevelOrPosKey;
     private JComboBox<FluidType> fluidCombo;
     private JComboBox<String> buttonModeCombo;
     private JComboBox<String> voltageCombo;
@@ -70,6 +78,8 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         setLayout(new BorderLayout(6, 6));
 
         nameField.setText(symbol.getName());
+        showLabelCheck.setSelected(symbol.isShowLabel());
+        labelPosCombo.setSelectedItem(symbol.getLabelPosition());
         tooltipField.setText(symbol.getTooltip());
         xSpin = new JSpinner(new SpinnerNumberModel(symbol.getGridX(), 0, 500, 1));
         ySpin = new JSpinner(new SpinnerNumberModel(symbol.getGridY(), 0, 500, 1));
@@ -90,11 +100,54 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         int lr = 0;
 
         addRow(leftPanel, lgbc, lr++, "Name:", nameField);
+        JPanel labelCtrlRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        labelCtrlRow.add(showLabelCheck);
+        labelCtrlRow.add(labelPosCombo);
+        JButton resetOffBtn = new JButton("Reset");
+        resetOffBtn.setToolTipText("Reset dragged label offset to 0,0");
+        resetOffBtn.addActionListener(e -> resetLabelOffset = true);
+        labelCtrlRow.add(resetOffBtn);
+        addRow(leftPanel, lgbc, lr++, "Label Display:", labelCtrlRow);
+
         addRow(leftPanel, lgbc, lr++, "Grid X:", xSpin);
         addRow(leftPanel, lgbc, lr++, "Grid Y:", ySpin);
         addRow(leftPanel, lgbc, lr++, resizable ? "Width (grid):" : "Width (fixed 1:1):", wSpin);
         addRow(leftPanel, lgbc, lr++, resizable ? "Height (grid):" : "Height (fixed 1:1):", hSpin);
         addRow(leftPanel, lgbc, lr++, "Rotation (deg):", rotCombo);
+
+        String st = symbol.getSymbolType();
+        if (st.equals("HandValve") || st.equals("GateValve") || st.equals("GlobeValve")
+                || st.equals("BallValve") || st.equals("ButterflyValve") || st.equals("NeedleValve")
+                || st.equals("PlugValve") || st.equals("DiaphragmValve") || st.equals("SolenoidValve")
+                || st.equals("ZoneValve") || st.equals("Damper")) {
+            manualStateKey = "Open";
+            manualStateCheck = new JCheckBox("Open (Manual / Initial State)",
+                    Boolean.parseBoolean(symbol.getProperties().getOrDefault("Open", "true")));
+            addRow(leftPanel, lgbc, lr++, "Valve State:", manualStateCheck);
+        } else if (st.endsWith("Pump") || st.contains("Fan") || st.equals("AirBlower")
+                || st.contains("Compressor") || st.contains("Boiler")
+                || st.contains("HeatPump") || st.equals("Chiller")) {
+            manualStateKey = "Running";
+            manualStateCheck = new JCheckBox("Running (Manual / Initial State)",
+                    Boolean.parseBoolean(symbol.getProperties().getOrDefault("Running", "false")));
+            addRow(leftPanel, lgbc, lr++, "Equipment State:", manualStateCheck);
+        } else if (st.equals("CircuitBreaker") || st.equals("Contactor") || st.equals("OverloadRelay")) {
+            manualStateKey = "Closed";
+            manualStateCheck = new JCheckBox("Closed (Energized)",
+                    Boolean.parseBoolean(symbol.getProperties().getOrDefault("Closed", "false")));
+            addRow(leftPanel, lgbc, lr++, "Switch State:", manualStateCheck);
+        } else if (isTankLikeSymbol(st)) {
+            manualLevelOrPosKey = "Level";
+            double initLvl = parseDouble(symbol.getProperties().getOrDefault("Level", "65"), 65.0);
+            manualLevelOrPosSpin = new JSpinner(new SpinnerNumberModel(initLvl, 0.0, 100.0, 5.0));
+            addRow(leftPanel, lgbc, lr++, "Initial Level (%):", manualLevelOrPosSpin);
+        } else if (st.equals("ControlValve") || st.equals("TwoWayControlValve") || st.equals("ThreeWayMixingValve")
+                || st.equals("MotorizedValve") || st.equals("PneumaticValve") || st.equals("VavBox")) {
+            manualLevelOrPosKey = "Position";
+            double initPos = parseDouble(symbol.getProperties().getOrDefault("Position", "100"), 100.0);
+            manualLevelOrPosSpin = new JSpinner(new SpinnerNumberModel(initPos, 0.0, 100.0, 5.0));
+            addRow(leftPanel, lgbc, lr++, "Opening (%):", manualLevelOrPosSpin);
+        }
 
         switch (domain) {
             case FLUID_EQUIPMENT, HEATING_HVAC, WASTEWATER -> {
@@ -102,11 +155,11 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
                 fluidCombo.setSelectedItem(parseFluid(symbol.getProperties().getOrDefault("fluidType",
                         symbol.getProperties().getOrDefault("FluidType", FluidType.WATER.name()))));
                 addRow(leftPanel, lgbc, lr++, "Fluid / Medium:", fluidCombo);
-                if (domain == EquipmentDomain.HEATING_HVAC) {
+                if (domain == EquipmentDomain.HEATING_HVAC && !ScadaSymbolInstance.isDefaultHiddenLabelType(st)) {
                     setpointField = new JTextField(symbol.getProperties().getOrDefault("setpoint", "55.0"), 12);
                     addRow(leftPanel, lgbc, lr++, "Design Temp / SP:", setpointField);
                 }
-                if (isTankLikeSymbol(symbol.getSymbolType())) {
+                if (SymbolCatalog.hasEngineeringScale(st)) {
                     minField = new JTextField(symbol.getProperties().getOrDefault("rangeMin",
                             symbol.getProperties().getOrDefault("Min", "0")), 12);
                     maxField = new JTextField(symbol.getProperties().getOrDefault("rangeMax",
@@ -120,8 +173,10 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
                 voltageCombo.setEditable(true);
                 voltageCombo.setSelectedItem(symbol.getProperties().getOrDefault("voltage", "400V 3~ AC"));
                 addRow(leftPanel, lgbc, lr++, "Rated Voltage:", voltageCombo);
-                ratedPowerField = new JTextField(symbol.getProperties().getOrDefault("ratedPower", "4.0 kW"), 12);
-                addRow(leftPanel, lgbc, lr++, "Rated Power / Current:", ratedPowerField);
+                if (st.equals("ElectricMotor") || st.equals("VfdDrive") || st.equals("Transformer")) {
+                    ratedPowerField = new JTextField(symbol.getProperties().getOrDefault("ratedPower", "4.0 kW"), 12);
+                    addRow(leftPanel, lgbc, lr++, "Rated Power / Current:", ratedPowerField);
+                }
             }
             case MAR_SENSOR -> {
                 unitsField = new JTextField(symbol.getProperties().getOrDefault("unit",
@@ -135,18 +190,20 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
                 addRow(leftPanel, lgbc, lr++, "Range Max:", maxField);
             }
             case OPERATOR_CONTROL -> {
-                if (symbol.getSymbolType().equals("PushButton") || symbol.getSymbolType().equals("EStopMushroom")) {
+                if (st.equals("PushButton") || st.equals("EStopMushroom")) {
                     buttonModeCombo = new JComboBox<>(new String[]{"Toggle", "Momentary"});
                     String savedMode = symbol.getProperties().getOrDefault("ButtonMode", "Toggle");
                     buttonModeCombo.setSelectedItem("Momentary".equalsIgnoreCase(savedMode) ? "Momentary" : "Toggle");
                     addRow(leftPanel, lgbc, lr++, "Button Mode:", buttonModeCombo);
                 }
-                unitsField = new JTextField(symbol.getProperties().getOrDefault("EngineeringUnits", ""), 12);
-                minField = new JTextField(symbol.getProperties().getOrDefault("Min", "0"), 12);
-                maxField = new JTextField(symbol.getProperties().getOrDefault("Max", "100"), 12);
-                addRow(leftPanel, lgbc, lr++, "Units:", unitsField);
-                addRow(leftPanel, lgbc, lr++, "Scale Min:", minField);
-                addRow(leftPanel, lgbc, lr++, "Scale Max:", maxField);
+                if (SymbolCatalog.hasEngineeringScale(st)) {
+                    unitsField = new JTextField(symbol.getProperties().getOrDefault("EngineeringUnits", ""), 12);
+                    minField = new JTextField(symbol.getProperties().getOrDefault("Min", "0"), 12);
+                    maxField = new JTextField(symbol.getProperties().getOrDefault("Max", "100"), 12);
+                    addRow(leftPanel, lgbc, lr++, "Units:", unitsField);
+                    addRow(leftPanel, lgbc, lr++, "Scale Min:", minField);
+                    addRow(leftPanel, lgbc, lr++, "Scale Max:", maxField);
+                }
             }
         }
         addRow(leftPanel, lgbc, lr, "Tooltip:", tooltipField);
@@ -159,36 +216,42 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         rgbc.fill = GridBagConstraints.HORIZONTAL;
         int rr = 0;
 
-        for (String role : relevantTagRoles()) {
-            rgbc.gridy = rr;
-            rgbc.gridx = 0;
-            rgbc.weightx = 0.0;
-            rightPanel.add(new JLabel(role + ":"), rgbc);
+        java.util.List<String> roles = SymbolCatalog.getRelevantTagRoles(symbol.getSymbolType());
+        if (roles.isEmpty()) {
+            setSize(450, 420);
+            add(new JScrollPane(leftPanel), BorderLayout.CENTER);
+        } else {
+            for (String role : roles) {
+                rgbc.gridy = rr;
+                rgbc.gridx = 0;
+                rgbc.weightx = 0.0;
+                rightPanel.add(new JLabel(role + ":"), rgbc);
 
-            JTextField tf = new JTextField(symbol.getTagBindings().getOrDefault(role, ""), 14);
-            tagFields.put(role, tf);
-            rgbc.gridx = 1;
-            rgbc.weightx = 1.0;
-            rightPanel.add(tf, rgbc);
+                JTextField tf = new JTextField(symbol.getTagBindings().getOrDefault(role, ""), 14);
+                tagFields.put(role, tf);
+                rgbc.gridx = 1;
+                rgbc.weightx = 1.0;
+                rightPanel.add(tf, rgbc);
 
-            JButton pickBtn = new JButton("...");
-            pickBtn.addActionListener(e -> {
-                OperandPickerDialog dlg = new OperandPickerDialog(this, project, tf.getText());
-                dlg.setVisible(true);
-                if (dlg.getSelectedTagName() != null) {
-                    tf.setText(dlg.getSelectedTagName());
-                }
-            });
-            rgbc.gridx = 2;
-            rgbc.weightx = 0.0;
-            rightPanel.add(pickBtn, rgbc);
-            rr++;
+                JButton pickBtn = new JButton("...");
+                pickBtn.addActionListener(e -> {
+                    OperandPickerDialog dlg = new OperandPickerDialog(this, project, tf.getText());
+                    dlg.setVisible(true);
+                    if (dlg.getSelectedTagName() != null) {
+                        tf.setText(dlg.getSelectedTagName());
+                    }
+                });
+                rgbc.gridx = 2;
+                rgbc.weightx = 0.0;
+                rightPanel.add(pickBtn, rgbc);
+                rr++;
+            }
+
+            JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+                    new JScrollPane(leftPanel), new JScrollPane(rightPanel));
+            split.setDividerLocation(370);
+            add(split, BorderLayout.CENTER);
         }
-
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                new JScrollPane(leftPanel), new JScrollPane(rightPanel));
-        split.setDividerLocation(360);
-        add(split, BorderLayout.CENTER);
 
         JPanel btnBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton okBtn = new JButton("OK");
@@ -201,26 +264,6 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         getRootPane().setDefaultButton(okBtn);
     }
 
-    private String[] relevantTagRoles() {
-        String type = symbol.getSymbolType();
-        return switch (domain) {
-            case ELECTRICAL -> new String[]{"RunTag", "FaultTag", "OpenTag", "ValueTag"};
-            case MAR_SENSOR -> new String[]{"ValueTag", "FaultTag"};
-            case OPERATOR_CONTROL -> type.contains("Numeric") || type.equals("BarGraph") || type.equals("TrendChart")
-                    ? new String[]{"ValueTag", "SetpointTag"}
-                    : new String[]{"RunTag", "OpenTag", "FaultTag"};
-            case FLUID_EQUIPMENT, HEATING_HVAC, WASTEWATER -> {
-                if (type.contains("Valve") || type.equals("Damper")) {
-                    yield new String[]{"OpenTag", "PositionTag", "FaultTag"};
-                }
-                if (type.contains("Tank") || type.equals("BufferTank") || type.equals("HopperSilo") || type.equals("OpenBasin")) {
-                    yield new String[]{"LevelTag", "ValueTag", "FaultTag"};
-                }
-                yield new String[]{"RunTag", "SpeedTag", "ValueTag", "FaultTag"};
-            }
-        };
-    }
-
     private void addRow(JPanel panel, GridBagConstraints gbc, int row, String label, java.awt.Component comp) {
         gbc.gridy = row;
         gbc.gridx = 0;
@@ -231,9 +274,31 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         panel.add(comp, gbc);
     }
 
+    private static double parseDouble(String raw, double fallback) {
+        if (raw == null || raw.isBlank()) return fallback;
+        try {
+            return Double.parseDouble(raw.trim());
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
     private void applyAndClose() {
-        String newName = nameField.getText().trim();
-        if (!newName.isEmpty()) symbol.setName(newName);
+        symbol.setName(nameField.getText().trim());
+        symbol.setShowLabel(showLabelCheck.isSelected());
+        if (labelPosCombo.getSelectedItem() instanceof ScadaSymbolInstance.LabelPosition lp) {
+            symbol.setLabelPosition(lp);
+        }
+        if (resetLabelOffset) {
+            symbol.setLabelOffsetX(0);
+            symbol.setLabelOffsetY(0);
+        }
+        if (manualStateCheck != null && manualStateKey != null) {
+            symbol.setProperty(manualStateKey, String.valueOf(manualStateCheck.isSelected()));
+        }
+        if (manualLevelOrPosSpin != null && manualLevelOrPosKey != null) {
+            symbol.setProperty(manualLevelOrPosKey, String.valueOf(manualLevelOrPosSpin.getValue()));
+        }
         symbol.setGridX((Integer) xSpin.getValue());
         symbol.setGridY((Integer) ySpin.getValue());
         if (resizable) {

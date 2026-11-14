@@ -18,34 +18,37 @@ import java.awt.Insets;
  * Utilitarian Win95/Win7 dockable sub-window panel matching MaraFlow's DockableSectionPanel.
  */
 public class DockableSectionPanel extends JPanel {
+    private static final Color HEADER_TOP = new Color(0xE8, 0xEE, 0xF5);
+    private static final Color HEADER_BOTTOM = new Color(0xCD, 0xD7, 0xE4);
+    private static final Color HEADER_BORDER = new Color(0x9A, 0xA6, 0xB4);
+    private static final Color TITLE_FG = new Color(0x22, 0x2A, 0x35);
+    private static final Font HEADER_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 11);
+
     private final JLabel titleLabel;
 
     public DockableSectionPanel(String title, JComponent content, Runnable onCloseClicked) {
         super(new BorderLayout());
-        setBorder(BorderFactory.createLineBorder(new Color(0x9A, 0xA6, 0xB4), 1));
+        setBorder(BorderFactory.createLineBorder(HEADER_BORDER, 1));
 
         JPanel header = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
                 Graphics2D g2 = (Graphics2D) g;
-                GradientPaint gp = new GradientPaint(
-                        0, 0, new Color(0xE8, 0xEE, 0xF5),
-                        0, getHeight(), new Color(0xCD, 0xD7, 0xE4)
-                );
+                GradientPaint gp = new GradientPaint(0, 0, HEADER_TOP, 0, getHeight(), HEADER_BOTTOM);
                 g2.setPaint(gp);
                 g2.fillRect(0, 0, getWidth(), getHeight());
             }
         };
         header.setPreferredSize(new Dimension(0, 22));
         header.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0x9A, 0xA6, 0xB4)),
+                BorderFactory.createMatteBorder(0, 0, 1, 0, HEADER_BORDER),
                 BorderFactory.createEmptyBorder(1, 6, 1, 3)
         ));
 
         titleLabel = new JLabel(title);
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        titleLabel.setForeground(new Color(0x22, 0x2A, 0x35));
+        titleLabel.setFont(HEADER_FONT);
+        titleLabel.setForeground(TITLE_FG);
         header.add(titleLabel, BorderLayout.WEST);
 
         if (onCloseClicked != null) {

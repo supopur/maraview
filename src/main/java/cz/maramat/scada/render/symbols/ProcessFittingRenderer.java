@@ -94,17 +94,27 @@ public final class ProcessFittingRenderer {
     }
 
     private static void paintTee(Graphics2D g, int w, int h, int gPx) {
-        double d = Math.max(8.0, Math.min(w, h) * 0.34);
+        double d = Math.max(5.0, gPx * 0.90);
         ScadaShader.paintCylinderH(g, 0, (h - d) / 2.0, w, d, Material.PIPE_WALL);
         ScadaShader.paintCylinderV(g, (w - d) / 2.0, h * 0.50, d, h * 0.50, Material.PIPE_WALL);
-        ScadaShader.paintBeveledHousing(g, (w - d - 4) / 2.0, (h - d - 4) / 2.0, d + 4, d + 4, 3.0, Material.FLANGE_STEEL);
+        double hub = d * 1.18;
+        g.setColor(new Color(0x63, 0x6D, 0x7A));
+        g.fill(new Ellipse2D.Double((w - hub) / 2.0, (h - hub) / 2.0, hub, hub));
+        g.setColor(ScadaPalette.OUTLINE_DARK);
+        g.setStroke(new BasicStroke(1.0f));
+        g.draw(new Ellipse2D.Double((w - hub) / 2.0, (h - hub) / 2.0, hub, hub));
     }
 
     private static void paintElbow(Graphics2D g, int w, int h, int gPx) {
-        double d = Math.max(8.0, Math.min(w, h) * 0.34);
-        ScadaShader.paintCylinderH(g, 0, (h - d) / 2.0, w * 0.58, d, Material.PIPE_WALL);
-        ScadaShader.paintCylinderV(g, (w - d) / 2.0, h * 0.42, d, h * 0.58, Material.PIPE_WALL);
-        ScadaShader.paintBeveledHousing(g, (w - d - 4) / 2.0, (h - d - 4) / 2.0, d + 4, d + 4, 4.0, Material.FLANGE_STEEL);
+        double d = Math.max(5.0, gPx * 0.90);
+        ScadaShader.paintCylinderH(g, 0, (h - d) / 2.0, w * 0.54, d, Material.PIPE_WALL);
+        ScadaShader.paintCylinderV(g, (w - d) / 2.0, h * 0.46, d, h * 0.54, Material.PIPE_WALL);
+        double hub = d * 1.15;
+        g.setColor(new Color(0x63, 0x6D, 0x7A));
+        g.fill(new Ellipse2D.Double((w - hub) / 2.0, (h - hub) / 2.0, hub, hub));
+        g.setColor(ScadaPalette.OUTLINE_DARK);
+        g.setStroke(new BasicStroke(1.0f));
+        g.draw(new Ellipse2D.Double((w - hub) / 2.0, (h - hub) / 2.0, hub, hub));
     }
 
     private static void paintReducer(Graphics2D g, int w, int h) {

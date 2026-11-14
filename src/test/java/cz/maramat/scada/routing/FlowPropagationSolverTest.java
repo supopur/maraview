@@ -226,4 +226,170 @@ class FlowPropagationSolverTest {
         assertTrue(open.get("p1").flowRate() > 0.0, "Inlet through open valve to Outlet must flow");
         assertTrue(open.get("p2").flowRate() > 0.0);
     }
+
+    @Test
+    void collectFlowRelevantTagsIncludesFlowControlsAndExcludesProcessSensors() {
+        ScadaProject project = new ScadaProject();
+        ScadaScreen screen = project.getScreens().getFirst();
+
+        ScadaSymbolInstance pump = new ScadaSymbolInstance("CirculationPump", "P-1", 4, 4, 4, 4);
+        pump.getTagBindings().put("RunTag", "P_Run");
+        pump.getTagBindings().put("SpeedTag", "P_Speed");
+        pump.getTagBindings().put("FaultTag", "P_Fault");
+
+        ScadaSymbolInstance valve = new ScadaSymbolInstance("ThreeWayMixingValve", "MV-1", 12, 4, 4, 4);
+        valve.getTagBindings().put("PositionTag", "V_Pos");
+        valve.getTagBindings().put("TempTag", "T_Mix");
+
+        ScadaSymbolInstance sensor = new ScadaSymbolInstance("TempSensor", "TT-1", 20, 4, 4, 4);
+        sensor.getTagBindings().put("ValueTag", "T_Kotel");
+
+        ScadaSymbolInstance readout = new ScadaSymbolInstance("NumericReadout", "E-1", 28, 4, 6, 2);
+        readout.getTagBindings().put("ValueTag", "E_KWh");
+
+        screen.getSymbols().addAll(List.of(pump, valve, sensor, readout));
+
+        ScadaPipe explicitPipe = new ScadaPipe("pExplicit");
+        explicitPipe.setAutoFlow(false);
+        explicitPipe.setFlowTag("ExplicitFlow");
+        screen.getPipes().add(explicitPipe);
+
+        var relevant = FlowPropagationSolver.collectFlowRelevantTags(screen);
+        assertTrue(relevant.contains("P_Run"));
+        assertTrue(relevant.contains("P_Speed"));
+        assertTrue(relevant.contains("V_Pos"));
+        assertTrue(relevant.contains("ExplicitFlow"));
+        assertFalse(relevant.contains("T_Kotel"));
+        assertFalse(relevant.contains("T_Mix"));
+        assertFalse(relevant.contains("E_KWh"));
+        assertFalse(relevant.contains("P_Fault"));
+    }
+
+    @Test
+    void closedHeatingLoopAndReverseDrawnPipesFlowWithCorrectDirection() {
+        ScadaProject project = new ScadaProject();
+        ScadaScreen screen = project.getScreens().getFirst();
+
+        ScadaSymbolInstance boiler = new ScadaSymbolInstance("GasBoiler", "B-1", 5, 10, 8, 8);
+        boiler.setProperty("Running", "true");
+        ScadaSymbolInstance pump = new ScadaSymbolInstance("CirculationPump", "CP-1", 18, 10, 4, 4);
+        pump.setProperty("Running", "true");
+        ScadaSymbolInstance radiator = new ScadaSymbolInstance("Radiator", "RAD-1", 28, 10, 6, 4);
+        screen.getSymbols().addAll(List.of(boiler, pump, radiator));
+
+        ScadaPipe supply1 = new ScadaPipe("s1");
+        supply1.setSourceSymbolId(boiler.getId());
+        supply1.setSourcePortId("outlet");
+        supply1.setTargetSymbolId(pump.getId());
+        supply1.setTargetPortId("inlet");
+
+        ScadaPipe supply2 = new ScadaPipe("s2");
+        supply2.setSourceSymbolId(pump.getId());
+        supply2.setSourcePortId("outlet");
+        supply2.setTargetSymbolId(radiator.getId());
+        supply2.setTargetPortId("inlet");
+
+        // Drawn in reverse (target -> source) for return pipe
+        ScadaPipe ret = new ScadaPipe("ret");
+        ret.setSourceSymbolId(boiler.getId());
+        ret.setSourcePortId("return");
+        ret.setTargetSymbolId(radiator.getId());
+        ret.setTargetPortId("outlet");
+
+        screen.getPipes().addAll(List.of(supply1, supply2, ret));
+
+        Map<String, FlowState> solved = FlowPropagationSolver.solve(screen, project, new InternalTagProvider());
+        assertTrue(solved.get("s1").flowRate() > 0.0);
+        assertTrue(solved.get("s2").flowRate() > 0.0);
+        assertTrue(solved.get("ret").flowRate() > 0.0, "Closed-loop return pipe must flow");
+        assertTrue(solved.get("ret").direction() < 0, "Reverse-drawn return pipe must have direction = -1");
+    }
+
+    @Test
+    void electricalPowerThroughClosedBreakerEnergizesPumpWithoutTags() {
+        ScadaProject project = new ScadaProject();
+        ScadaScreen screen = project.getScreens().getFirst();
+
+        ScadaSymbolInstance pwr = new ScadaSymbolInstance("PowerSource400V", "400V", 2, 2, 4, 4);
+        ScadaSymbolInstance breaker = new ScadaSymbolInstance("CircuitBreaker", "CB-1", 10, 2, 4, 4);
+        breaker.setProperty("Closed", "true");
+        ScadaSymbolInstance pump = new ScadaSymbolInstance("CentrifugalPump", "P-1", 18, 2, 6, 6);
+        ScadaSymbolInstance outlet = new ScadaSymbolInstance("Outlet", "Out", 28, 2, 4, 4);
+        screen.getSymbols().addAll(List.of(pwr, breaker, pump, outlet));
+
+        ScadaPipe w1 = new ScadaPipe("w1");
+        w1.setConnectionType(ConnectionType.ELECTRICAL_POWER);
+        w1.setSourceSymbolId(pwr.getId());
+        w1.setSourcePortId("out");
+        w1.setTargetSymbolId(breaker.getId());
+        w1.setTargetPortId("in");
+
+        ScadaPipe w2 = new ScadaPipe("w2");
+        w2.setConnectionType(ConnectionType.ELECTRICAL_POWER);
+        w2.setSourceSymbolId(breaker.getId());
+        w2.setSourcePortId("out");
+        w2.setTargetSymbolId(pump.getId());
+        w2.setTargetPortId("pwr");
+
+        ScadaPipe p1 = new ScadaPipe("p1");
+        p1.setSourceSymbolId(pump.getId());
+        p1.setSourcePortId("discharge");
+        p1.setTargetSymbolId(outlet.getId());
+        p1.setTargetPortId("inlet");
+
+        screen.getPipes().addAll(List.of(w1, w2, p1));
+
+        Map<String, FlowState> closedSolved = FlowPropagationSolver.solve(screen, project, new InternalTagProvider());
+        assertTrue(closedSolved.get("w2").flowRate() > 0.0);
+        assertTrue(closedSolved.get("p1").flowRate() > 0.0, "Energized pump must flow water to outlet");
+
+        breaker.setProperty("Closed", "false");
+        Map<String, FlowState> openSolved = FlowPropagationSolver.solve(screen, project, new InternalTagProvider());
+        assertFalse(openSolved.get("w2").pressurized());
+        assertFalse(openSolved.get("p1").pressurized(), "De-energized pump must stop flowing");
+    }
+
+    @Test
+    void plateHeatExchangerIsolatesPrimaryAndSecondaryWaterCircuits() {
+        ScadaProject project = new ScadaProject();
+        ScadaScreen screen = project.getScreens().getFirst();
+
+        ScadaSymbolInstance tank = new ScadaSymbolInstance("BufferTank", "AKU", 2, 10, 8, 9);
+        ScadaSymbolInstance hex = new ScadaSymbolInstance("PlateHeatExchanger", "OKR2", 15, 10, 8, 10);
+        ScadaSymbolInstance stoppedPump = new ScadaSymbolInstance("CirculationPump", "P-OKR2", 28, 10, 5, 5);
+        stoppedPump.setProperty("Running", "false");
+        ScadaSymbolInstance fcu = new ScadaSymbolInstance("UnderfloorHeatingZone", "M2", 38, 10, 9, 8);
+        screen.getSymbols().addAll(List.of(tank, hex, stoppedPump, fcu));
+
+        ScadaPipe secFeed = new ScadaPipe("secFeed");
+        secFeed.setSourceSymbolId(tank.getId());
+        secFeed.setSourcePortId("top_out");
+        secFeed.setTargetSymbolId(hex.getId());
+        secFeed.setTargetPortId("sec_in");
+
+        ScadaPipe priPipe1 = new ScadaPipe("priPipe1");
+        priPipe1.setSourceSymbolId(hex.getId());
+        priPipe1.setSourcePortId("pri_out");
+        priPipe1.setTargetSymbolId(stoppedPump.getId());
+        priPipe1.setTargetPortId("inlet");
+
+        ScadaPipe priPipe2 = new ScadaPipe("priPipe2");
+        priPipe2.setSourceSymbolId(stoppedPump.getId());
+        priPipe2.setSourcePortId("outlet");
+        priPipe2.setTargetSymbolId(fcu.getId());
+        priPipe2.setTargetPortId("supply");
+
+        ScadaPipe priReturn = new ScadaPipe("priReturn");
+        priReturn.setSourceSymbolId(fcu.getId());
+        priReturn.setSourcePortId("return");
+        priReturn.setTargetSymbolId(hex.getId());
+        priReturn.setTargetPortId("pri_in");
+
+        screen.getPipes().addAll(List.of(secFeed, priPipe1, priPipe2, priReturn));
+
+        Map<String, FlowState> solved = FlowPropagationSolver.solve(screen, project, new InternalTagProvider());
+        assertFalse(solved.get("priPipe1").pressurized(), "Secondary flow must not cross into primary circuit");
+        assertFalse(solved.get("priPipe2").pressurized());
+        assertFalse(solved.get("priReturn").pressurized());
+    }
 }

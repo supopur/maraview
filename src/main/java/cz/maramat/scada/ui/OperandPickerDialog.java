@@ -79,6 +79,15 @@ public class OperandPickerDialog extends JDialog {
         bottom.add(okBtn);
         bottom.add(cancelBtn);
         add(bottom, BorderLayout.SOUTH);
+        getRootPane().setDefaultButton(okBtn);
+        getRootPane().getInputMap(javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0), "closeDialog");
+        getRootPane().getActionMap().put("closeDialog", new javax.swing.AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                dispose();
+            }
+        });
 
         filterField.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { refreshRows(); }

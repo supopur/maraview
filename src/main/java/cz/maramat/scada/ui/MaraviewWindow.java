@@ -140,7 +140,10 @@ public class MaraviewWindow extends JFrame {
     private final JLabel connStatusLabel = new JLabel(" ONLINE ");
     private final Timer runtimeSyncTimer;
     private JSplitPane mainSplit;
+    private JSplitPane rightSplit;
     private DockableSectionPanel leftDockSection;
+    private DockableSectionPanel inspectorSection;
+    private ScadaInspectorPanel inspectorPanel;
     private JToolBar quickToolbar;
     private SimState currentSimState = SimState.STOPPED;
     private boolean operatorMode = false;
@@ -240,9 +243,24 @@ public class MaraviewWindow extends JFrame {
 
         DockableSectionPanel viewportSection = new DockableSectionPanel("Process Viewport", screenTabs, null);
 
-        mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDockSection, viewportSection);
+        inspectorPanel = new ScadaInspectorPanel(this::getActiveCanvas);
+        inspectorSection = new DockableSectionPanel("Inspector", inspectorPanel,
+                () -> inspectorSection.setVisible(false));
+        inspectorSection.setPreferredSize(new Dimension(260, 600));
+
+        rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, viewportSection, inspectorSection);
+        rightSplit.setDividerSize(5);
+        rightSplit.setResizeWeight(1.0);
+
+        mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDockSection, rightSplit);
         mainSplit.setDividerSize(5);
         mainSplit.setDividerLocation(this.userConfig.getLeftDockWidth());
+
+        screenTabs.addChangeListener(e -> {
+            if (inspectorPanel != null) {
+                inspectorPanel.refresh();
+            }
+        });
 
         JPanel northStack = new JPanel(new BorderLayout());
         northStack.add(topBarHost, BorderLayout.NORTH);
@@ -347,34 +365,48 @@ public class MaraviewWindow extends JFrame {
         final ScadaProject snapshotProject = this.project;
         simPollExecutor.submit(() -> {
             try {
-                MaraflowSimClient.SimStatus status = maraflowSimClient.refreshStatus();
-                final MaraflowBridgeTagProvider.Snapshot snap =
-                        (snapshotProject != null && status.online() && tagProvider == maraflowTagProvider)
-                                ? maraflowTagProvider.fetchSnapshot(snapshotProject)
-                                : null;
+                final MaraflowBridgeTagProvider.Snapshot snap;
+                final MaraflowSimClient.SimStatus status;
+                if (snapshotProject != null && tagProvider == maraflowTagProvider) {
+                    snap = maraflowTagProvider.fetchSnapshot(snapshotProject);
+                    status = maraflowSimClient.getLastStatus();
+                } else {
+                    status = maraflowSimClient.refreshStatus();
+                    snap = null;
+                }
                 SwingUtilities.invokeLater(() -> {
                     try {
                         if (snapshotProject == this.project && status.online()) {
-                            boolean changed = false;
+                            boolean tagsChanged = false;
+                            boolean stateChanged = false;
                             if (snapshotProject != null) {
                                 if (snap != null) {
-                                    changed = maraflowTagProvider.applySnapshot(snapshotProject, snap);
+                                    tagsChanged = maraflowTagProvider.applySnapshot(snapshotProject, snap);
                                 } else {
                                     tagProvider.syncAll(snapshotProject);
-                                    changed = true;
+                                    tagsChanged = true;
                                 }
                             }
                             SimState mapped = mapRemoteSimState(status.simState());
                             if (mapped != currentSimState) {
                                 updateSimUiState(mapped);
-                                changed = true;
+                                stateChanged = true;
                             }
                             long now = System.currentTimeMillis();
                             alarmEngine.evaluate(project, now);
-                            if (changed) {
+                            if (stateChanged) {
                                 repaintActiveCanvas();
+                            } else if (tagsChanged) {
+                                if (snap != null) {
+                                    ScadaCanvas active = getActiveCanvas();
+                                    if (active != null) {
+                                        active.repaintForChangedTags(maraflowTagProvider.getLastChangedTagNames());
+                                    }
+                                } else {
+                                    repaintActiveCanvas();
+                                }
                             }
-                            maybeRefreshPeriodicUi(now, changed);
+                            maybeRefreshPeriodicUi(now, tagsChanged || stateChanged);
                         } else {
                             maybeRefreshPeriodicUi(System.currentTimeMillis(), false);
                         }
@@ -534,12 +566,33 @@ public class MaraviewWindow extends JFrame {
             alarmBanner.setVisible(userConfig.isShowAlarmBanner());
             saveUserConfigQuietly();
         });
+        JCheckBoxMenuItem viewLabelsItem = new JCheckBoxMenuItem("Show Equipment Labels",
+                cz.maramat.scada.render.symbols.EquipmentSymbolRenderer.isGlobalShowLabels());
+        viewLabelsItem.addActionListener(e -> {
+            cz.maramat.scada.render.symbols.EquipmentSymbolRenderer.setGlobalShowLabels(viewLabelsItem.isSelected());
+            ScadaCanvas c = getActiveCanvas();
+            if (c != null) {
+                c.repaint();
+            }
+        });
+        JCheckBoxMenuItem viewInspectorItem = new JCheckBoxMenuItem("Show Inspector Panel", true);
+        viewInspectorItem.addActionListener(e -> {
+            if (inspectorSection != null) {
+                inspectorSection.setVisible(viewInspectorItem.isSelected());
+                if (viewInspectorItem.isSelected()) {
+                    rightSplit.resetToPreferredSizes();
+                }
+            }
+        });
+
         viewMenu.add(zoomInItem);
         viewMenu.add(zoomOutItem);
         viewMenu.add(zoom100Item);
         viewMenu.addSeparator();
         viewMenu.add(viewGridItem);
         viewMenu.add(viewFlowItem);
+        viewMenu.add(viewLabelsItem);
+        viewMenu.add(viewInspectorItem);
         viewMenu.add(viewStatusBarItem);
         viewMenu.add(viewAlarmBannerItem);
 
@@ -1050,6 +1103,11 @@ public class MaraviewWindow extends JFrame {
         canvas.setOnToolModeChanged(() -> {
             if (cursorToolBtn != null) {
                 cursorToolBtn.setSelected(true);
+            }
+        });
+        canvas.setOnSelectionChanged(() -> {
+            if (inspectorPanel != null && getActiveCanvas() == canvas) {
+                inspectorPanel.refresh();
             }
         });
         canvas.setOnDirtyCallback(() -> {

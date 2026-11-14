@@ -2,7 +2,9 @@ package cz.maramat.scada.ui;
 
 import cz.maramat.scada.config.UserConfig;
 import cz.maramat.scada.model.ConnectionType;
+import cz.maramat.scada.model.FluidType;
 import cz.maramat.scada.model.GridPoint;
+import cz.maramat.scada.model.PipeDiameter;
 import cz.maramat.scada.model.PipePort;
 import cz.maramat.scada.model.ScadaGraphicElement;
 import cz.maramat.scada.model.ScadaPipe;
@@ -23,8 +25,11 @@ import cz.maramat.scada.tags.RuntimeTagProvider;
 import cz.maramat.scada.undo.UndoManager50;
 
 import java.awt.AlphaComposite;
+import java.awt.GraphicsConfiguration;
+import java.awt.Transparency;
 import java.awt.image.BufferedImage;
 import javax.swing.AbstractAction;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JMenu;
@@ -157,6 +162,14 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     private int dragStartGridY;
     private boolean dragSnapshotRecorded = false;
 
+    // Label drag
+    private ScadaSymbolInstance draggingLabelSymbol = null;
+    private int labelDragStartPxX;
+    private int labelDragStartPxY;
+    private int labelOrigOffX;
+    private int labelOrigOffY;
+    private boolean labelDragSnapshotRecorded = false;
+
     // Marquee selection
     private boolean marqueeActive = false;
     private Point marqueeStartPx;
@@ -191,15 +204,24 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     private boolean staticPipeLayerAA = false;
     private long staticPipeLayerHash = 0L;
 
-    // Cached z-ordered symbols & flow solver result
+    // Cached flow-relevant tags & solver result
     private List<ScadaSymbolInstance> cachedOrderedSymbols = List.of();
     private long cachedSymbolOrderHash = 0L;
     private ScadaScreen cachedSymbolOrderScreen;
+    private Set<String> cachedFlowRelevantTags = Set.of();
+    private ScadaScreen cachedFlowTagsScreen;
+    private long cachedFlowTagsPipeHash = 0L;
+    private int cachedFlowTagsSymCount = -1;
+    private long cachedFlowTagsDesignRev = -1L;
     private long cachedFlowRevision = Long.MIN_VALUE;
+    private long cachedFlowTagSignature = Long.MIN_VALUE;
     private long cachedFlowPipeHash = 0L;
     private int cachedFlowSymCount = -1;
+    private long cachedFlowDesignRev = -1L;
     private ScadaScreen cachedFlowScreen;
     private RuntimeTagProvider cachedFlowProvider;
+    private long designRevision = 0L;
+    private final Map<Long, BufferedImage> portSpriteCache = new HashMap<>();
 
     public record PortHit(ScadaSymbolInstance symbol, PipePort port, PipePort.WorldPort worldPort) {
     }
@@ -224,10 +246,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 if (!isCanvasVisibleAndActive()) {
                     return;
                 }
-                Rectangle dirty = computeAnimatedDirtyRect();
-                if (dirty != null) {
-                    repaint(dirty.x, dirty.y, dirty.width, dirty.height);
-                }
+                repaintAnimatedRegions();
             }
         });
     }
@@ -255,11 +274,47 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         return true;
     }
 
-    private Rectangle computeAnimatedDirtyRect() {
-        if (screen == null) return null;
+    /**
+     * Triggers targeted dirty-rect repaints for changed runtime tags.
+     * Full-canvas repaint occurs only when a flow-relevant tag changed.
+     */
+    public void repaintForChangedTags(Set<String> changedTags) {
+        if (screen == null || changedTags == null || changedTags.isEmpty()) {
+            return;
+        }
+        long pipeHash = computePipeTopologyHash(screen.getPipes());
+        Set<String> flowTags = getFlowRelevantTags(pipeHash);
+        for (String tag : changedTags) {
+            if (flowTags.contains(tag)) {
+                repaint();
+                return;
+            }
+        }
         int gPx = getGridSizePx();
-        Rectangle dirty = null;
+        int pad = Math.max(24, gPx * 3);
+        for (ScadaSymbolInstance sym : screen.getSymbols()) {
+            Map<String, String> bindings = sym.getTagBindings();
+            if (bindings == null || bindings.isEmpty()) continue;
+            boolean hit = false;
+            for (String bound : bindings.values()) {
+                if (bound != null && changedTags.contains(bound)) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (hit) {
+                int x = sym.getGridX() * gPx - pad;
+                int y = sym.getGridY() * gPx - pad;
+                int w = sym.getEffectiveGridW() * gPx + pad * 2;
+                int h = sym.getEffectiveGridH() * gPx + pad * 2;
+                repaint(x, y, w, h);
+            }
+        }
+    }
 
+    private void repaintAnimatedRegions() {
+        if (screen == null) return;
+        int gPx = getGridSizePx();
         Map<String, FlowState> flow = this.lastFlowMap;
         for (ScadaPipe pipe : screen.getPipes()) {
             FlowState fs = flow.get(pipe.getId());
@@ -268,18 +323,16 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             }
             List<GridPoint> verts = pipe.getVertices();
             if (verts.size() < 2) continue;
-            int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE;
-            int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
-            for (GridPoint gp : verts) {
-                if (gp.x() < minX) minX = gp.x();
-                if (gp.y() < minY) minY = gp.y();
-                if (gp.x() > maxX) maxX = gp.x();
-                if (gp.y() > maxY) maxY = gp.y();
-            }
             int pad = Math.max(10, (int) Math.ceil(pipe.getDiameter().getGridUnits() * gPx) + 6);
-            Rectangle r = new Rectangle(minX * gPx - pad, minY * gPx - pad,
-                    (maxX - minX) * gPx + pad * 2, (maxY - minY) * gPx + pad * 2);
-            dirty = (dirty == null) ? r : dirty.union(r);
+            for (int i = 0; i < verts.size() - 1; i++) {
+                GridPoint a = verts.get(i);
+                GridPoint b = verts.get(i + 1);
+                int x1 = Math.min(a.x(), b.x()) * gPx - pad;
+                int y1 = Math.min(a.y(), b.y()) * gPx - pad;
+                int x2 = Math.max(a.x(), b.x()) * gPx + pad;
+                int y2 = Math.max(a.y(), b.y()) * gPx + pad;
+                repaint(x1, y1, x2 - x1, y2 - y1);
+            }
         }
 
         for (ScadaSymbolInstance sym : screen.getSymbols()) {
@@ -288,12 +341,10 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             if (st == cz.maramat.scada.render.EquipmentState.RUNNING
                     || st == cz.maramat.scada.render.EquipmentState.FAULT) {
                 int pad = 6;
-                Rectangle r = new Rectangle(sym.getGridX() * gPx - pad, sym.getGridY() * gPx - pad,
+                repaint(sym.getGridX() * gPx - pad, sym.getGridY() * gPx - pad,
                         sym.getEffectiveGridW() * gPx + pad * 2, sym.getEffectiveGridH() * gPx + pad * 2);
-                dirty = (dirty == null) ? r : dirty.union(r);
             }
         }
-        return dirty;
     }
 
     private void syncAnimTimer() {
@@ -312,6 +363,14 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     public void dispose() {
         animTimer.stop();
         layerCache.invalidateAll();
+        if (staticPipeLayer != null) {
+            staticPipeLayer.flush();
+            staticPipeLayer = null;
+        }
+        for (BufferedImage sprite : portSpriteCache.values()) {
+            sprite.flush();
+        }
+        portSpriteCache.clear();
         undoManager.clear();
         this.screen = null;
         this.project = null;
@@ -321,9 +380,20 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     }
 
     private Runnable onToolModeChanged;
+    private Runnable onSelectionChanged;
 
     public void setOnToolModeChanged(Runnable onToolModeChanged) {
         this.onToolModeChanged = onToolModeChanged;
+    }
+
+    public void setOnSelectionChanged(Runnable onSelectionChanged) {
+        this.onSelectionChanged = onSelectionChanged;
+    }
+
+    private void notifySelectionChanged() {
+        if (onSelectionChanged != null) {
+            onSelectionChanged.run();
+        }
     }
 
     private void resetTransientInteractionState() {
@@ -581,6 +651,31 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         return selectedPipeIds;
     }
 
+    public ScadaSymbolInstance getSingleSelectedSymbol() {
+        if (screen == null || selectedSymbolIds.size() != 1) return null;
+        return screen.findSymbolById(selectedSymbolIds.iterator().next());
+    }
+
+    public ScadaPipe getSingleSelectedPipe() {
+        if (screen == null || selectedPipeIds.size() != 1) return null;
+        String id = selectedPipeIds.iterator().next();
+        for (ScadaPipe p : screen.getPipes()) {
+            if (p.getId().equals(id)) return p;
+        }
+        return null;
+    }
+
+    public void recordUndoSnapshot(String label) {
+        if (screen != null) {
+            undoManager.recordSnapshot(label, screen);
+        }
+    }
+
+    public void refreshAfterExternalEdit() {
+        markDirty();
+        repaint();
+    }
+
     public void rotateSelected90CW() {
         if (operatorMode || screen == null || selectedSymbolIds.isEmpty()) return;
         undoManager.recordSnapshot("Rotate 90", screen);
@@ -672,8 +767,10 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         this.onDirtyCallback = cb;
     }
 
-    private BufferedImage ensureStaticPipeLayer(int gPx, int w, int h, long hash) {
-        if (screen == null || w <= 0 || h <= 0 || screen.getPipes().isEmpty()) {
+    private BufferedImage ensureStaticPipeLayer(int gPx, int w, int h, long hash,
+                                                boolean simActive, Color bg, boolean showGrid,
+                                                Map<String, FlowState> flowMap) {
+        if (screen == null || w <= 0 || h <= 0) {
             return null;
         }
         if (staticPipeLayer != null
@@ -689,18 +786,42 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             staticPipeLayer = null;
         }
         if (staticPipeLayer == null) {
-            staticPipeLayer = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            GraphicsConfiguration gc = getGraphicsConfiguration();
+            staticPipeLayer = (gc != null)
+                    ? gc.createCompatibleImage(w, h, Transparency.OPAQUE)
+                    : new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         }
         Graphics2D pg = staticPipeLayer.createGraphics();
         try {
-            pg.setComposite(AlphaComposite.Clear);
-            pg.fillRect(0, 0, w, h);
-            pg.setComposite(AlphaComposite.SrcOver);
             pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                     antiAliasing ? RenderingHints.VALUE_ANTIALIAS_ON : RenderingHints.VALUE_ANTIALIAS_OFF);
             pg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+
+            // 1. Opaque canvas background
+            pg.setColor(bg);
+            pg.fillRect(0, 0, w, h);
+
+            // 2. Design-mode grid dots
+            if (showGrid) {
+                paintGridDots(pg, gPx, w, h);
+            }
+
+            // 3. Unselected background graphics
+            for (ScadaGraphicElement ge : screen.getGraphics()) {
+                if (!operatorMode && selectedGraphicIds.contains(ge.getId())) {
+                    continue;
+                }
+                GraphicElementRenderer.paint(pg, ge, gPx, false);
+            }
+
+            // 4. Non-dragged pipes: metallic shell + stationary pressurized fluid / idle wire core
             for (ScadaPipe pipe : screen.getPipes()) {
+                if (isActivelyDraggedPipe(pipe)) {
+                    continue;
+                }
                 PipeRenderer.paintPipeStatic(pg, pipe, gPx);
+                FlowState fs = flowMap.getOrDefault(pipe.getId(), FlowState.IDLE);
+                PipeRenderer.paintPipePressurizedFluid(pg, pipe, gPx, fs, simActive);
             }
         } finally {
             pg.dispose();
@@ -711,6 +832,86 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         staticPipeLayerAA = antiAliasing;
         staticPipeLayerHash = hash;
         return staticPipeLayer;
+    }
+
+    private boolean isActivelyDraggedPipe(ScadaPipe pipe) {
+        if (pipe == draggingPipe) {
+            return true;
+        }
+        if (draggingSymbols && !selectedSymbolIds.isEmpty()) {
+            String src = pipe.getSourceSymbolId();
+            if (src != null && selectedSymbolIds.contains(src)) {
+                return true;
+            }
+            String tgt = pipe.getTargetSymbolId();
+            if (tgt != null && selectedSymbolIds.contains(tgt)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private long computeStaticLayerHash(List<ScadaPipe> pipes, Map<String, FlowState> flowMap,
+                                        boolean simActive, Color bg, boolean showGrid) {
+        long h = 1469598103934665603L;
+        h = (h ^ (simActive ? 1L : 0L)) * 1099511628211L;
+        h = (h ^ (operatorMode ? 1L : 0L)) * 1099511628211L;
+        h = (h ^ (showGrid ? 1L : 0L)) * 1099511628211L;
+        h = (h ^ (bg != null ? bg.getRGB() : 0)) * 1099511628211L;
+        h = (h ^ (gridDotColor != null ? gridDotColor.getRGB() : 0)) * 1099511628211L;
+
+        for (ScadaGraphicElement ge : screen.getGraphics()) {
+            boolean sel = !operatorMode && selectedGraphicIds.contains(ge.getId());
+            h = (h ^ (sel ? 1L : 0L)) * 1099511628211L;
+            if (!sel) {
+                h = hashGraphicElement(h, ge);
+            }
+        }
+
+        for (ScadaPipe p : pipes) {
+            boolean dragged = isActivelyDraggedPipe(p);
+            h = (h ^ (dragged ? 1L : 0L)) * 1099511628211L;
+            if (dragged) continue;
+            h = (h ^ p.getDiameter().ordinal()) * 1099511628211L;
+            h = (h ^ p.getConnectionType().ordinal()) * 1099511628211L;
+            h = (h ^ p.getFluidType().ordinal()) * 1099511628211L;
+            List<GridPoint> verts = p.getVertices();
+            h = (h ^ verts.size()) * 1099511628211L;
+            for (GridPoint gp : verts) {
+                h = (h ^ gp.x()) * 1099511628211L;
+                h = (h ^ gp.y()) * 1099511628211L;
+            }
+            FlowState fs = flowMap.get(p.getId());
+            boolean wireFlowing = simActive && fs != null && fs.pressurized() && fs.flowRate() > 0.0;
+            boolean pressurized = simActive && fs != null && fs.pressurized();
+            FluidType effFluid = (fs != null && fs.fluidType() != null) ? fs.fluidType() : p.getFluidType();
+            h = (h ^ (wireFlowing ? 1L : 0L)) * 1099511628211L;
+            h = (h ^ (pressurized ? 1L : 0L)) * 1099511628211L;
+            h = (h ^ (effFluid != null ? effFluid.ordinal() : -1)) * 1099511628211L;
+        }
+        return h;
+    }
+
+    private static long hashGraphicElement(long h, ScadaGraphicElement ge) {
+        h = (h ^ Objects.hashCode(ge.getId())) * 1099511628211L;
+        h = (h ^ (ge.getKind() != null ? ge.getKind().ordinal() : -1)) * 1099511628211L;
+        h = (h ^ ge.getGridX()) * 1099511628211L;
+        h = (h ^ ge.getGridY()) * 1099511628211L;
+        h = (h ^ ge.getGridW()) * 1099511628211L;
+        h = (h ^ ge.getGridH()) * 1099511628211L;
+        h = (h ^ (ge.getStrokeColor() != null ? ge.getStrokeColor().getRGB() : 0)) * 1099511628211L;
+        h = (h ^ (ge.getFillColor() != null ? ge.getFillColor().getRGB() : 0)) * 1099511628211L;
+        h = (h ^ (ge.isFilled() ? 1L : 0L)) * 1099511628211L;
+        h = (h ^ ge.getStrokeWidth()) * 1099511628211L;
+        h = (h ^ (ge.isDashed() ? 1L : 0L)) * 1099511628211L;
+        h = (h ^ ge.getNgonSides()) * 1099511628211L;
+        h = (h ^ Objects.hashCode(ge.getText())) * 1099511628211L;
+        h = (h ^ ge.getFontSize()) * 1099511628211L;
+        h = (h ^ Objects.hashCode(ge.getImagePath())) * 1099511628211L;
+        h = (h ^ Objects.hashCode(ge.getImageBase64())) * 1099511628211L;
+        h = (h ^ (ge.isPreserveAspectRatio() ? 1L : 0L)) * 1099511628211L;
+        h = (h ^ Double.doubleToLongBits(ge.getOpacity())) * 1099511628211L;
+        return h;
     }
 
     private static long computePipeTopologyHash(List<ScadaPipe> pipes) {
@@ -728,24 +929,59 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         return h;
     }
 
+    private Set<String> getFlowRelevantTags(long pipeHash) {
+        int symCount = screen.getSymbols().size();
+        if (cachedFlowTagsScreen != screen
+                || cachedFlowTagsPipeHash != pipeHash
+                || cachedFlowTagsSymCount != symCount
+                || cachedFlowTagsDesignRev != designRevision) {
+            cachedFlowRelevantTags = FlowPropagationSolver.collectFlowRelevantTags(screen);
+            cachedFlowTagsScreen = screen;
+            cachedFlowTagsPipeHash = pipeHash;
+            cachedFlowTagsSymCount = symCount;
+            cachedFlowTagsDesignRev = designRevision;
+        }
+        return cachedFlowRelevantTags;
+    }
+
+    private long computeFlowTagSignature(Set<String> relevantTags) {
+        long h = 1469598103934665603L;
+        if (tagProvider != null && project != null) {
+            for (String tagName : relevantTags) {
+                double val = tagProvider.readTag(project, tagName);
+                h = (h ^ Double.doubleToLongBits(val)) * 1099511628211L;
+            }
+        }
+        return h;
+    }
+
     private Map<String, FlowState> resolveFlowMap(long pipeHash) {
         long rev = (tagProvider != null) ? tagProvider.getRevision() : -1L;
         int symCount = screen.getSymbols().size();
-        if (rev >= 0L
-                && cachedFlowProvider == tagProvider
+        boolean structuralSame = cachedFlowProvider == tagProvider
                 && cachedFlowScreen == screen
-                && cachedFlowRevision == rev
                 && cachedFlowPipeHash == pipeHash
                 && cachedFlowSymCount == symCount
-                && lastFlowMap != null) {
+                && cachedFlowDesignRev == designRevision
+                && lastFlowMap != null;
+        if (structuralSame && rev >= 0L && cachedFlowRevision == rev) {
+            return lastFlowMap;
+        }
+        Set<String> relevantTags = getFlowRelevantTags(pipeHash);
+        long sig = computeFlowTagSignature(relevantTags);
+        if (structuralSame && cachedFlowTagSignature == sig) {
+            cachedFlowRevision = rev;
             return lastFlowMap;
         }
         Map<String, FlowState> solved = FlowPropagationSolver.solve(screen, project, tagProvider);
         cachedFlowProvider = tagProvider;
         cachedFlowScreen = screen;
         cachedFlowRevision = rev;
+        cachedFlowTagSignature = sig;
         cachedFlowPipeHash = pipeHash;
         cachedFlowSymCount = symCount;
+        cachedFlowDesignRev = designRevision;
+        this.lastFlowMap = solved;
         return solved;
     }
 
@@ -805,6 +1041,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     }
 
     public void markDirty() {
+        designRevision++;
         if (project != null) {
             project.setDirty(true);
         }
@@ -828,56 +1065,70 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             int gPx = getGridSizePx();
             Rectangle clip = g.getClipBounds();
             Color bg = (screen != null) ? screen.getBackgroundColor() : ScadaScreen.parseHexColor(ScadaScreen.BG_LIGHT_SLATE, Color.LIGHT_GRAY);
-            g.setColor(bg);
-            if (clip != null) {
-                g.fillRect(clip.x, clip.y, clip.width, clip.height);
-            } else {
-                g.fillRect(0, 0, getWidth(), getHeight());
-            }
+            boolean showGrid = !operatorMode && (screen == null || screen.isShowGrid());
 
-            if (!operatorMode && (screen == null || screen.isShowGrid())) {
-                paintGridDots(g, gPx);
+            if (screen == null) {
+                g.setColor(bg);
+                if (clip != null) {
+                    g.fillRect(clip.x, clip.y, clip.width, clip.height);
+                } else {
+                    g.fillRect(0, 0, getWidth(), getHeight());
+                }
+                if (showGrid) {
+                    paintGridDots(g, gPx, getWidth(), getHeight());
+                }
+                return;
             }
-
-            if (screen == null) return;
 
             long pipeHash = computePipeTopologyHash(screen.getPipes());
             Map<String, FlowState> flowMap = resolveFlowMap(pipeHash);
             this.lastFlowMap = flowMap;
 
-            // 0. Graphical elements & pictures (background layer)
-            for (ScadaGraphicElement ge : screen.getGraphics()) {
-                if (clip != null && !graphicIntersectsClip(ge, gPx, clip)) {
-                    continue;
-                }
-                boolean gSel = !operatorMode && selectedGraphicIds.contains(ge.getId());
-                GraphicElementRenderer.paint(g, ge, gPx, gSel);
-            }
-            if (!operatorMode && creatingGraphic != null) {
-                GraphicElementRenderer.paint(g, creatingGraphic, gPx, true);
-            }
-
-            // 1. Pipes & Electrical/Control Wires (static shell cached; dynamic fluid/selection per frame)
-            BufferedImage pipeLayer = ensureStaticPipeLayer(gPx, getWidth(), getHeight(), pipeHash);
-            if (pipeLayer != null) {
+            // 0+1: Unified opaque background + grid dots + unselected background graphics + static pipes + stationary pressurized fluid
+            long layerHash = computeStaticLayerHash(screen.getPipes(), flowMap, simActive, bg, showGrid);
+            BufferedImage baseLayer = ensureStaticPipeLayer(gPx, getWidth(), getHeight(), layerHash, simActive, bg, showGrid, flowMap);
+            if (baseLayer != null) {
                 if (clip != null) {
                     int x1 = Math.max(0, clip.x);
                     int y1 = Math.max(0, clip.y);
-                    int x2 = Math.min(pipeLayer.getWidth(), clip.x + clip.width);
-                    int y2 = Math.min(pipeLayer.getHeight(), clip.y + clip.height);
+                    int x2 = Math.min(baseLayer.getWidth(), clip.x + clip.width);
+                    int y2 = Math.min(baseLayer.getHeight(), clip.y + clip.height);
                     if (x2 > x1 && y2 > y1) {
-                        g.drawImage(pipeLayer, x1, y1, x2, y2, x1, y1, x2, y2, null);
+                        g.drawImage(baseLayer, x1, y1, x2, y2, x1, y1, x2, y2, null);
                     }
                 } else {
-                    g.drawImage(pipeLayer, 0, 0, null);
+                    g.drawImage(baseLayer, 0, 0, null);
                 }
             }
+
+            // Selected / actively created graphics (unselected graphics live in baseLayer)
+            if (!operatorMode) {
+                for (ScadaGraphicElement ge : screen.getGraphics()) {
+                    if (!selectedGraphicIds.contains(ge.getId())) {
+                        continue;
+                    }
+                    if (clip != null && !graphicIntersectsClip(ge, gPx, clip)) {
+                        continue;
+                    }
+                    GraphicElementRenderer.paint(g, ge, gPx, true);
+                }
+                if (creatingGraphic != null) {
+                    GraphicElementRenderer.paint(g, creatingGraphic, gPx, true);
+                }
+            }
+
+            // Dynamic flow particles & selection highlights (or full render for actively dragged pipes)
             for (ScadaPipe pipe : screen.getPipes()) {
                 if (clip != null && !pipeIntersectsClip(pipe, gPx, clip)) {
                     continue;
                 }
                 FlowState fs = flowMap.getOrDefault(pipe.getId(), FlowState.IDLE);
-                PipeRenderer.paintPipeDynamic(g, pipe, gPx, fs, simActive, flowDashPhasePx, selectedPipeIds.contains(pipe.getId()));
+                boolean selected = selectedPipeIds.contains(pipe.getId());
+                if (isActivelyDraggedPipe(pipe)) {
+                    PipeRenderer.paintPipe(g, pipe, gPx, fs, simActive, flowDashPhasePx, selected);
+                } else {
+                    PipeRenderer.paintPipeFlowParticles(g, pipe, gPx, fs, simActive, flowDashPhasePx, selected);
+                }
             }
 
             // 2. Symbols sorted by zIndex
@@ -983,10 +1234,10 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     private Color cachedGridColor = null;
     private TexturePaint cachedGridPaint = null;
 
-    private void paintGridDots(Graphics2D g, int gPx) {
-        if (gPx <= 0) return;
+    private void paintGridDots(Graphics2D g, int gPx, int w, int h) {
+        if (gPx <= 0 || w <= 0 || h <= 0) return;
         if (cachedGridPaint == null || cachedGridPx != gPx || !Objects.equals(cachedGridColor, gridDotColor)) {
-            java.awt.image.BufferedImage tile = new java.awt.image.BufferedImage(gPx, gPx, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            BufferedImage tile = new BufferedImage(gPx, gPx, BufferedImage.TYPE_INT_ARGB);
             Graphics2D tg = tile.createGraphics();
             tg.setColor(gridDotColor);
             tg.fillRect(0, 0, 1, 1);
@@ -996,7 +1247,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             cachedGridColor = gridDotColor;
         }
         Rectangle clip = g.getClipBounds();
-        if (clip == null) clip = new Rectangle(0, 0, getWidth(), getHeight());
+        if (clip == null) clip = new Rectangle(0, 0, w, h);
         Paint oldPaint = g.getPaint();
         g.setPaint(cachedGridPaint);
         g.fillRect(clip.x, clip.y, clip.width, clip.height);
@@ -1014,32 +1265,54 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     }
 
     private void paintSymbolPorts(Graphics2D g, ScadaSymbolInstance sym, int gPx) {
+        int r = Math.max(3, gPx / 3);
+        int pad = 2;
         for (PipePort port : sym.getPorts()) {
             PipePort.WorldPort wp = sym.resolveWorldPort(port.id());
             if (wp == null) continue;
             int px = wp.position().x() * gPx;
             int py = wp.position().y() * gPx;
-            int r = Math.max(3, gPx / 3);
-            if (port.connectionType() == ConnectionType.ELECTRICAL_POWER) {
-                g.setColor(new Color(0xFF, 0x98, 0x00));
-                g.fillRect(px - r, py - r, r * 2, r * 2);
-                g.setColor(new Color(0x4E, 0x26, 0x00));
-                g.setStroke(new BasicStroke(1.0f));
-                g.drawRect(px - r, py - r, r * 2, r * 2);
-            } else if (port.connectionType() == ConnectionType.CONTROL_SIGNAL) {
-                g.setColor(new Color(0x00, 0xB0, 0x9B));
-                g.fillOval(px - r, py - r, r * 2, r * 2);
-                g.setColor(new Color(0x00, 0x4D, 0x40));
-                g.setStroke(new BasicStroke(1.0f));
-                g.drawOval(px - r, py - r, r * 2, r * 2);
-            } else {
-                g.setColor(new Color(0xE1, 0xE8, 0xEF));
-                g.fillOval(px - r, py - r, r * 2, r * 2);
-                g.setColor(new Color(0x1F, 0x61, 0x8D));
-                g.setStroke(new BasicStroke(1.2f));
-                g.drawOval(px - r, py - r, r * 2, r * 2);
-            }
+            ConnectionType ct = port.connectionType();
+            int kind = (ct == ConnectionType.ELECTRICAL_POWER) ? 0
+                    : (ct == ConnectionType.CONTROL_SIGNAL ? 1 : 2);
+            BufferedImage sprite = getOrCreatePortSprite(kind, r, pad);
+            g.drawImage(sprite, px - r - pad, py - r - pad, null);
         }
+    }
+
+    private BufferedImage getOrCreatePortSprite(int kind, int r, int pad) {
+        long key = (((long) kind) << 32) | (r & 0xFFFFFFFFL);
+        BufferedImage cached = portSpriteCache.get(key);
+        if (cached != null) return cached;
+        if (portSpriteCache.size() > 64) {
+            portSpriteCache.clear();
+        }
+        int size = (r + pad) * 2;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D pg = img.createGraphics();
+        pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        if (kind == 0) {
+            pg.setColor(new Color(0xFF, 0x98, 0x00));
+            pg.fillRect(pad, pad, r * 2, r * 2);
+            pg.setColor(new Color(0x4E, 0x26, 0x00));
+            pg.setStroke(new BasicStroke(1.0f));
+            pg.drawRect(pad, pad, r * 2, r * 2);
+        } else if (kind == 1) {
+            pg.setColor(new Color(0x00, 0xB0, 0x9B));
+            pg.fillOval(pad, pad, r * 2, r * 2);
+            pg.setColor(new Color(0x00, 0x4D, 0x40));
+            pg.setStroke(new BasicStroke(1.0f));
+            pg.drawOval(pad, pad, r * 2, r * 2);
+        } else {
+            pg.setColor(new Color(0xE1, 0xE8, 0xEF));
+            pg.fillOval(pad, pad, r * 2, r * 2);
+            pg.setColor(new Color(0x1F, 0x61, 0x8D));
+            pg.setStroke(new BasicStroke(1.2f));
+            pg.drawOval(pad, pad, r * 2, r * 2);
+        }
+        pg.dispose();
+        portSpriteCache.put(key, img);
+        return img;
     }
 
     private void paintResizeHandles(Graphics2D g, int x, int y, int w, int h, boolean unused) {
@@ -1232,18 +1505,45 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     return;
                 }
 
-                // 2. Pipe segment hit
+                // 2. Pipe segment hit (selectable in Cursor or Pipe mode; double-click opens Pipe Properties)
                 PipeEdgeDragController.SegmentHit segHit = PipeEdgeDragController.hitTest(screen.getPipes(), gx, gy, 0.65);
-                if (segHit != null && toolMode == ToolMode.CURSOR) {
+                if (segHit != null && (toolMode == ToolMode.CURSOR || toolMode == ToolMode.PIPE)) {
                     selectedSymbolIds.clear();
                     selectedGraphicIds.clear();
                     selectedPipeIds.clear();
                     selectedPipeIds.add(segHit.pipe().getId());
+                    notifySelectionChanged();
+                    if (e.getClickCount() == 2) {
+                        openPipeProperties(segHit.pipe());
+                        return;
+                    }
                     draggingPipe = segHit.pipe();
                     draggingSegIndex = segHit.segmentIndex();
                     draggingSegHoriz = segHit.horizontal();
                     lastSegDragGrid = draggingSegHoriz ? Math.round((float) gy) : Math.round((float) gx);
                     pipeDragSnapshotRecorded = false;
+                    repaint();
+                    return;
+                }
+
+                // 2b. Symbol label hit (drag to reposition label)
+                ScadaSymbolInstance labelHit = (toolMode == ToolMode.CURSOR) ? hitTestSymbolLabel(e.getX(), e.getY()) : null;
+                if (labelHit != null) {
+                    selectedPipeIds.clear();
+                    selectedGraphicIds.clear();
+                    selectedSymbolIds.clear();
+                    selectedSymbolIds.add(labelHit.getId());
+                    notifySelectionChanged();
+                    if (e.getClickCount() == 2) {
+                        openSymbolProperties(labelHit);
+                        return;
+                    }
+                    draggingLabelSymbol = labelHit;
+                    labelDragStartPxX = e.getX();
+                    labelDragStartPxY = e.getY();
+                    labelOrigOffX = labelHit.getLabelOffsetX();
+                    labelOrigOffY = labelHit.getLabelOffsetY();
+                    labelDragSnapshotRecorded = false;
                     repaint();
                     return;
                 }
@@ -1264,6 +1564,11 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                         selectedSymbolIds.clear();
                         selectedGraphicIds.clear();
                         selectedSymbolIds.add(symHit.getId());
+                    }
+                    notifySelectionChanged();
+                    if (simState == SimState.RUNNING && toolMode == ToolMode.CURSOR && !e.isShiftDown()
+                            && isOperatorInteractive(symHit.getSymbolType())) {
+                        handleOperatorPress(symHit);
                     }
                     draggingSymbols = true;
                     dragStartGridX = Math.round((float) gx);
@@ -1488,6 +1793,22 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     return;
                 }
 
+                if (draggingLabelSymbol != null) {
+                    int dxPx = e.getX() - labelDragStartPxX;
+                    int dyPx = e.getY() - labelDragStartPxY;
+                    if (dxPx != 0 || dyPx != 0) {
+                        if (!labelDragSnapshotRecorded) {
+                            undoManager.recordSnapshot("Move Label", screen);
+                            labelDragSnapshotRecorded = true;
+                        }
+                        draggingLabelSymbol.setLabelOffsetX(labelOrigOffX + dxPx);
+                        draggingLabelSymbol.setLabelOffsetY(labelOrigOffY + dyPx);
+                        markDirty();
+                        repaint();
+                    }
+                    return;
+                }
+
                 if (draggingSymbols) {
                     int dx = igx - dragStartGridX;
                     int dy = igy - dragStartGridY;
@@ -1654,6 +1975,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     return;
                 }
 
+                draggingLabelSymbol = null;
                 draggingSymbols = false;
                 draggingGraphics = false;
 
@@ -1675,11 +1997,31 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                                 selectedSymbolIds.add(sym.getId());
                             }
                         }
+                        for (ScadaGraphicElement ge : screen.getGraphics()) {
+                            Rectangle gRect = new Rectangle(
+                                    ge.getGridX() * gPx, ge.getGridY() * gPx,
+                                    Math.max(1, ge.getGridW()) * gPx, Math.max(1, ge.getGridH()) * gPx
+                            );
+                            if (rect.intersects(gRect)) {
+                                selectedGraphicIds.add(ge.getId());
+                            }
+                        }
+                        for (ScadaPipe pipe : screen.getPipes()) {
+                            for (GridPoint gp : pipe.getVertices()) {
+                                if (rect.contains(gp.x() * gPx, gp.y() * gPx)) {
+                                    selectedPipeIds.add(pipe.getId());
+                                    break;
+                                }
+                            }
+                        }
                     }
                     marqueeActive = false;
                     marqueeStartPx = null;
                     marqueeEndPx = null;
+                    notifySelectionChanged();
                     repaint();
+                } else {
+                    notifySelectionChanged();
                 }
             }
 
@@ -1758,28 +2100,71 @@ public class ScadaCanvas extends JComponent implements Scrollable {
 
         PipeEdgeDragController.SegmentHit segHit = PipeEdgeDragController.hitTest(screen.getPipes(), gx, gy, 0.75);
         if (segHit != null) {
+            ScadaPipe hitPipe = segHit.pipe();
+            selectedSymbolIds.clear();
+            selectedGraphicIds.clear();
+            selectedPipeIds.clear();
+            selectedPipeIds.add(hitPipe.getId());
+            notifySelectionChanged();
+            repaint();
+
             JPopupMenu menu = new JPopupMenu();
+            JMenuItem pipeProps = new JMenuItem("Pipe Properties... (Double-Click)");
+            pipeProps.setFont(new Font(pipeProps.getFont().getName(), Font.BOLD, pipeProps.getFont().getSize()));
+            pipeProps.addActionListener(ev -> openPipeProperties(hitPipe));
+
+            JMenu diamMenu = new JMenu("Pipe Diameter");
+            for (PipeDiameter pd : PipeDiameter.values()) {
+                JCheckBoxMenuItem item = new JCheckBoxMenuItem(pd.getDisplayName(), hitPipe.getDiameter() == pd);
+                item.addActionListener(ev -> {
+                    undoManager.recordSnapshot("Change Pipe Diameter", screen);
+                    hitPipe.setDiameter(pd);
+                    markDirty();
+                    notifySelectionChanged();
+                    repaint();
+                });
+                diamMenu.add(item);
+            }
+
+            JMenu fluidMenu = new JMenu("Fluid Type");
+            for (FluidType ft : FluidType.values()) {
+                JCheckBoxMenuItem item = new JCheckBoxMenuItem(ft.getDisplayName(), hitPipe.getFluidType() == ft);
+                item.addActionListener(ev -> {
+                    undoManager.recordSnapshot("Change Pipe Fluid", screen);
+                    hitPipe.setFluidType(ft);
+                    markDirty();
+                    notifySelectionChanged();
+                    repaint();
+                });
+                fluidMenu.add(item);
+            }
+
             JMenuItem addBend = new JMenuItem("Add Bend / Step");
             addBend.addActionListener(ev -> {
                 undoManager.recordSnapshot("Add Bend", screen);
-                PipeEdgeDragController.addBendAt(segHit.pipe(), segHit.segmentIndex(), segHit.snappedPoint());
+                PipeEdgeDragController.addBendAt(hitPipe, segHit.segmentIndex(), segHit.snappedPoint());
                 markDirty();
                 repaint();
             });
             JMenuItem teeBranch = new JMenuItem("Create Tee Branch");
             teeBranch.addActionListener(ev -> {
-                routingTeePipeId = segHit.pipe().getId();
+                routingTeePipeId = hitPipe.getId();
                 routingTeeStart = segHit.snappedPoint();
                 rubberBandVertices = List.of(routingTeeStart, routingTeeStart);
             });
             JMenuItem delPipe = new JMenuItem("Delete Pipe");
             delPipe.addActionListener(ev -> {
                 undoManager.recordSnapshot("Delete Pipe", screen);
-                screen.getPipes().remove(segHit.pipe());
-                selectedPipeIds.remove(segHit.pipe().getId());
+                screen.getPipes().remove(hitPipe);
+                selectedPipeIds.remove(hitPipe.getId());
                 markDirty();
+                notifySelectionChanged();
                 repaint();
             });
+            menu.add(pipeProps);
+            menu.add(diamMenu);
+            menu.add(fluidMenu);
+            menu.addSeparator();
             menu.add(addBend);
             menu.add(teeBranch);
             menu.addSeparator();
@@ -1804,13 +2189,47 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             JMenuItem renameItem = new JMenuItem("Rename Element...");
             renameItem.addActionListener(ev -> {
                 String nn = JOptionPane.showInputDialog(this, "Rename '" + symHit.getName() + "':", symHit.getName());
-                if (nn != null && !nn.isBlank()) {
+                if (nn != null) {
                     undoManager.recordSnapshot("Rename Element", screen);
                     symHit.setName(nn.trim());
                     markDirty();
+                    notifySelectionChanged();
                     repaint();
                 }
             });
+            JCheckBoxMenuItem showLabelItem = new JCheckBoxMenuItem("Show Name Label", symHit.isShowLabel());
+            showLabelItem.addActionListener(ev -> {
+                undoManager.recordSnapshot("Toggle Label Visibility", screen);
+                symHit.setShowLabel(showLabelItem.isSelected());
+                markDirty();
+                notifySelectionChanged();
+                repaint();
+            });
+            JMenu labelPosMenu = new JMenu("Label Position");
+            for (ScadaSymbolInstance.LabelPosition lp : ScadaSymbolInstance.LabelPosition.values()) {
+                JCheckBoxMenuItem lpItem = new JCheckBoxMenuItem(lp.getDisplayName(), symHit.getLabelPosition() == lp);
+                lpItem.addActionListener(ev -> {
+                    undoManager.recordSnapshot("Move Label Position", screen);
+                    symHit.setLabelPosition(lp);
+                    symHit.setLabelOffsetX(0);
+                    symHit.setLabelOffsetY(0);
+                    markDirty();
+                    notifySelectionChanged();
+                    repaint();
+                });
+                labelPosMenu.add(lpItem);
+            }
+            labelPosMenu.addSeparator();
+            JMenuItem resetLabelOff = new JMenuItem("Reset Label Offset");
+            resetLabelOff.addActionListener(ev -> {
+                undoManager.recordSnapshot("Reset Label Offset", screen);
+                symHit.setLabelOffsetX(0);
+                symHit.setLabelOffsetY(0);
+                markDirty();
+                notifySelectionChanged();
+                repaint();
+            });
+            labelPosMenu.add(resetLabelOff);
             JMenuItem dupItem = new JMenuItem("Duplicate (Cmd/Ctrl+D)");
             dupItem.addActionListener(ev -> {
                 copySelection();
@@ -1831,6 +2250,8 @@ public class ScadaCanvas extends JComponent implements Scrollable {
 
             menu.add(propsItem);
             menu.add(renameItem);
+            menu.add(showLabelItem);
+            menu.add(labelPosMenu);
             menu.addSeparator();
             menu.add(dupItem);
             menu.add(rot);
@@ -2027,6 +2448,9 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                             sym.setGridX(Math.max(0, sym.getGridX() + dx * step));
                             sym.setGridY(Math.max(0, sym.getGridY() + dy * step));
                         }
+                    }
+                    if (!selectedSymbolIds.isEmpty()) {
+                        translateOrReroutePipes(selectedSymbolIds, dx * step, dy * step);
                     }
                     for (ScadaGraphicElement g : screen.getGraphics()) {
                         if (selectedGraphicIds.contains(g.getId())) {
@@ -2268,6 +2692,39 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         return null;
     }
 
+    private ScadaSymbolInstance hitTestSymbolLabel(double px, double py) {
+        if (screen == null) return null;
+        Graphics2D g2 = (Graphics2D) getGraphics();
+        if (g2 == null) return null;
+        try {
+            int gPx = getGridSizePx();
+            List<ScadaSymbolInstance> ordered = new ArrayList<>(screen.getSymbols());
+            ordered.sort(Comparator.comparingInt(ScadaSymbolInstance::getZIndex).reversed());
+            for (ScadaSymbolInstance sym : ordered) {
+                java.awt.geom.Rectangle2D.Double lb = EquipmentSymbolRenderer.computeLabelBounds(g2, sym, gPx);
+                if (lb != null && lb.contains(px, py)) {
+                    return sym;
+                }
+            }
+            return null;
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    private void openPipeProperties(ScadaPipe pipe) {
+        if (project == null || screen == null || pipe == null) return;
+        UndoManager50.Snapshot before = UndoManager50.capture("Edit Pipe Properties", screen);
+        PipePropertiesDialog dlg = new PipePropertiesDialog(SwingUtilities.getWindowAncestor(this), project, pipe);
+        dlg.setVisible(true);
+        if (dlg.isConfirmed()) {
+            undoManager.recordSnapshot(before);
+            markDirty();
+            notifySelectionChanged();
+            repaint();
+        }
+    }
+
     private void openSymbolProperties(ScadaSymbolInstance sym) {
         if (project == null || screen == null || sym == null) return;
         UndoManager50.Snapshot before = UndoManager50.capture("Edit Properties", screen);
@@ -2277,15 +2734,55 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         if (dlg.isConfirmed()) {
             undoManager.recordSnapshot(before);
             markDirty();
+            notifySelectionChanged();
             repaint();
         }
     }
 
     private void handleOperatorPress(ScadaSymbolInstance sym) {
-        if (project == null || tagProvider == null) return;
+        if (sym == null) return;
         String type = sym.getSymbolType();
         String targetTag = resolveWriteTag(sym);
-        if (targetTag == null || targetTag.isBlank()) return;
+        boolean hasTag = targetTag != null && !targetTag.isBlank() && project != null && tagProvider != null;
+
+        if (!hasTag) {
+            // Tagless interactive simulation toggle via symbol properties
+            switch (type) {
+                case "PushButton", "EStopMushroom", "SelectorSwitch" -> {
+                    boolean pressed = Boolean.parseBoolean(sym.getProperties().getOrDefault("Pressed", "false"));
+                    sym.setProperty("Pressed", String.valueOf(!pressed));
+                    markDirty();
+                    notifySelectionChanged();
+                    repaint();
+                }
+                case "HandValve", "BallValve", "GateValve", "GlobeValve", "ButterflyValve",
+                     "NeedleValve", "PlugValve", "DiaphragmValve", "SolenoidValve", "ZoneValve", "Damper" -> {
+                    boolean open = Boolean.parseBoolean(sym.getProperties().getOrDefault("Open", "true"));
+                    sym.setProperty("Open", String.valueOf(!open));
+                    markDirty();
+                    notifySelectionChanged();
+                    repaint();
+                }
+                case "CircuitBreaker", "Contactor" -> {
+                    boolean closed = Boolean.parseBoolean(sym.getProperties().getOrDefault("Closed", "false"));
+                    sym.setProperty("Closed", String.valueOf(!closed));
+                    markDirty();
+                    notifySelectionChanged();
+                    repaint();
+                }
+                default -> {
+                    if (type.endsWith("Pump") || type.contains("Boiler") || type.equals("Chiller")
+                            || type.contains("HeatPump") || type.contains("Fan") || type.equals("AirBlower")) {
+                        boolean running = Boolean.parseBoolean(sym.getProperties().getOrDefault("Running", "false"));
+                        sym.setProperty("Running", String.valueOf(!running));
+                        markDirty();
+                        notifySelectionChanged();
+                        repaint();
+                    }
+                }
+            }
+            return;
+        }
 
         double cur = tagProvider.readTag(project, targetTag);
         switch (type) {
@@ -2299,7 +2796,8 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 }
                 repaint();
             }
-            case "SolenoidValve", "HandValve" -> {
+            case "SolenoidValve", "HandValve", "BallValve", "GateValve", "GlobeValve", "ButterflyValve", "ZoneValve",
+                 "CircuitBreaker", "Contactor" -> {
                 tagProvider.writeTag(project, targetTag, (cur != 0.0) ? 0.0 : 1.0);
                 repaint();
             }
@@ -2321,6 +2819,11 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 }
             }
             default -> {
+                if (type.endsWith("Pump") || type.contains("Boiler") || type.equals("Chiller")
+                        || type.contains("HeatPump") || type.contains("Fan") || type.equals("AirBlower")) {
+                    tagProvider.writeTag(project, targetTag, (cur != 0.0) ? 0.0 : 1.0);
+                    repaint();
+                }
             }
         }
     }
@@ -2338,7 +2841,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     }
 
     private static String resolveWriteTag(ScadaSymbolInstance sym) {
-        for (String role : new String[]{"SetpointTag", "ValueTag", "OpenTag", "RunTag"}) {
+        for (String role : new String[]{"TargetTag", "SetpointTag", "ValueTag", "OpenTag", "ClosedTag", "RunTag"}) {
             String t = sym.getTagBindings().get(role);
             if (t != null && !t.isBlank()) return t;
         }
@@ -2346,9 +2849,16 @@ public class ScadaCanvas extends JComponent implements Scrollable {
     }
 
     private static boolean isOperatorInteractive(String type) {
+        if (type == null) return false;
+        if (type.endsWith("Pump") || type.contains("Boiler") || type.equals("Chiller")
+                || type.contains("HeatPump") || type.contains("Fan") || type.equals("AirBlower")) {
+            return true;
+        }
         return switch (type) {
             case "PushButton", "SelectorSwitch", "EStopMushroom",
-                 "SolenoidValve", "HandValve", "NumericSetpoint" -> true;
+                 "SolenoidValve", "HandValve", "BallValve", "GateValve", "GlobeValve",
+                 "ButterflyValve", "NeedleValve", "PlugValve", "DiaphragmValve", "ZoneValve", "Damper",
+                 "CircuitBreaker", "Contactor", "NumericSetpoint" -> true;
             default -> false;
         };
     }

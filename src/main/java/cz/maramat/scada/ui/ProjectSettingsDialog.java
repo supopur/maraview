@@ -73,57 +73,53 @@ public final class ProjectSettingsDialog {
         mflRow.add(browseMflBtn, BorderLayout.EAST);
         addRow(infoPanel, g1, r1++, "Linked .mfl Path:", mflRow);
 
-        // --- Tab 2: Communication ---
+        // --- Tab 2: Communication (TCP MaraProt) ---
         CommSettings comm = project.getCommSettings();
         JComboBox<CommSettings.Mode> modeCombo = new JComboBox<>(CommSettings.Mode.values());
         modeCombo.setSelectedItem(comm.getMode());
         JTextField hostField = new JTextField(comm.getHost(), 18);
-        JSpinner portSpin = new JSpinner(new SpinnerNumberModel(comm.getTcpPort(), 1, 65535, 1));
-        JTextField serialField = new JTextField(comm.getSerialPort(), 18);
-        JSpinner baudSpin = new JSpinner(new SpinnerNumberModel(comm.getBaudRate(), 1200, 921600, 9600));
-        JSpinner slaveSpin = new JSpinner(new SpinnerNumberModel(comm.getSlaveId(), 0, 255, 1));
+        JTextField portField = ConnectServerDialog.createDigitsOnlyField(String.valueOf(comm.getTcpPort()), 8);
+        JTextField stationField = ConnectServerDialog.createDigitsOnlyField(String.valueOf(comm.getStationId()), 6);
         JSpinner pollSpin = new JSpinner(new SpinnerNumberModel(comm.getPollIntervalMs(), 10, 10000, 10));
 
         JPanel commPanel = new JPanel(new GridBagLayout());
         commPanel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
         GridBagConstraints g2 = createGbc();
         int r2 = 0;
-        addRow(commPanel, g2, r2++, "Driver / Mode:", modeCombo);
-        addRow(commPanel, g2, r2++, "Host / IP:", hostField);
-        addRow(commPanel, g2, r2++, "TCP Port:", portSpin);
-        addRow(commPanel, g2, r2++, "Serial Port:", serialField);
-        addRow(commPanel, g2, r2++, "Baud Rate:", baudSpin);
-        addRow(commPanel, g2, r2++, "Slave / Unit ID:", slaveSpin);
+        addRow(commPanel, g2, r2++, "Mode:", modeCombo);
+        addRow(commPanel, g2, r2++, "IP Address:", hostField);
+        addRow(commPanel, g2, r2++, "TCP Port:", portField);
+        addRow(commPanel, g2, r2++, "Station ID:", stationField);
         addRow(commPanel, g2, r2++, "Poll Interval (ms):", pollSpin);
 
-        JButton testConnBtn = new JButton("Test Maraflow Sim Connection");
+        JButton testConnBtn = new JButton("Test MaraProt Connection");
         JLabel testStatusLabel = new JLabel(" ");
-        testConnBtn.setEnabled(comm.getMode() == CommSettings.Mode.MARAFLOW_SIM);
+        testConnBtn.setEnabled(comm.isRemoteMaraProt());
         modeCombo.addActionListener(e -> {
             CommSettings.Mode sel = (CommSettings.Mode) modeCombo.getSelectedItem();
-            int curPort = ((Number) portSpin.getValue()).intValue();
-            if (sel == CommSettings.Mode.MARAFLOW_SIM && curPort == 502) {
-                portSpin.setValue(CommSettings.DEFAULT_MARAFLOW_SIM_PORT);
-            } else if (sel == CommSettings.Mode.MODBUS_TCP && curPort == CommSettings.DEFAULT_MARAFLOW_SIM_PORT) {
-                portSpin.setValue(502);
+            if (sel == CommSettings.Mode.MARAFLOW_SIM) {
+                portField.setText(String.valueOf(CommSettings.DEFAULT_MARAFLOW_SIM_PORT));
+            } else if (sel == CommSettings.Mode.MARAPROT_TCP) {
+                portField.setText(String.valueOf(CommSettings.DEFAULT_MARAPROT_TCP_PORT));
             }
-            testConnBtn.setEnabled(sel == CommSettings.Mode.MARAFLOW_SIM);
+            testConnBtn.setEnabled(sel == CommSettings.Mode.MARAFLOW_SIM || sel == CommSettings.Mode.MARAPROT_TCP);
             testStatusLabel.setText(" ");
         });
         testConnBtn.addActionListener(e -> {
             String host = hostField.getText().trim();
-            int port = ((Number) portSpin.getValue()).intValue();
+            int port = parseIntOrDefault(portField.getText(), CommSettings.DEFAULT_MARAPROT_TCP_PORT);
+            int station = parseIntOrDefault(stationField.getText(), 1);
+            String pw = ConnectServerDialog.loadSavedPassword();
             testConnBtn.setEnabled(false);
             testStatusLabel.setForeground(Color.DARK_GRAY);
             testStatusLabel.setText("Connecting...");
             Thread.ofVirtual().start(() -> {
-                MaraflowSimClient.SimStatus st = MaraflowSimClient.testConnection(host, port);
+                MaraflowSimClient.SimStatus st = MaraflowSimClient.testConnection(host, port, station, pw);
                 SwingUtilities.invokeLater(() -> {
-                    testConnBtn.setEnabled(modeCombo.getSelectedItem() == CommSettings.Mode.MARAFLOW_SIM);
+                    CommSettings.Mode sel = (CommSettings.Mode) modeCombo.getSelectedItem();
+                    testConnBtn.setEnabled(sel == CommSettings.Mode.MARAFLOW_SIM || sel == CommSettings.Mode.MARAPROT_TCP);
                     if (st.online()) {
-                        testStatusLabel.setForeground(new Color(0x1E, 0x84, 0x49));
-                        String projInfo = st.projectName().isBlank() ? "" : (" [" + st.projectName() + "]");
-                        testStatusLabel.setText("Connected: " + st.simState() + projInfo);
+                        statusOnline(testStatusLabel, st);
                     } else {
                         testStatusLabel.setForeground(new Color(0xD9, 0x26, 0x26));
                         testStatusLabel.setText("Offline: " + (st.errorMessage().isBlank() ? "Connection refused" : st.errorMessage()));
@@ -152,10 +148,8 @@ public final class ProjectSettingsDialog {
 
             comm.setMode((CommSettings.Mode) modeCombo.getSelectedItem());
             comm.setHost(hostField.getText());
-            comm.setTcpPort(((Number) portSpin.getValue()).intValue());
-            comm.setSerialPort(serialField.getText());
-            comm.setBaudRate(((Number) baudSpin.getValue()).intValue());
-            comm.setSlaveId(((Number) slaveSpin.getValue()).intValue());
+            comm.setTcpPort(parseIntOrDefault(portField.getText(), CommSettings.DEFAULT_MARAPROT_TCP_PORT));
+            comm.setStationId(parseIntOrDefault(stationField.getText(), 1));
             comm.setPollIntervalMs(((Number) pollSpin.getValue()).intValue());
 
             project.setDirty(true);
@@ -197,5 +191,16 @@ public final class ProjectSettingsDialog {
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         panel.add(comp, gbc);
+    }
+
+    private static void statusOnline(JLabel lbl, MaraflowSimClient.SimStatus st) {
+        lbl.setForeground(new Color(0x1E, 0x84, 0x49));
+        String projInfo = st.projectName().isBlank() ? "" : (" [" + st.projectName() + "]");
+        lbl.setText("Connected: " + st.simState() + projInfo);
+    }
+
+    private static int parseIntOrDefault(String s, int def) {
+        if (s == null || s.isBlank()) return def;
+        try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return def; }
     }
 }

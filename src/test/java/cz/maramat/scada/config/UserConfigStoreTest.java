@@ -58,7 +58,7 @@ class UserConfigStoreTest {
         cfg.addRecentProject("/tmp/b.msl");
 
         CommSettings comm = cfg.getDefaultCommSettings();
-        comm.setMode(CommSettings.Mode.MODBUS_TCP);
+        comm.setMode(CommSettings.Mode.MARAPROT_TCP);
         comm.setHost("192.168.10.50");
         comm.setTcpPort(1502);
         comm.setSerialPort("/dev/ttyUSB0");
@@ -109,12 +109,10 @@ class UserConfigStoreTest {
         assertEquals("/tmp/a.msl", loaded.getRecentProjects().get(1));
 
         CommSettings lc = loaded.getDefaultCommSettings();
-        assertEquals(CommSettings.Mode.MODBUS_TCP, lc.getMode());
+        assertEquals(CommSettings.Mode.MARAPROT_TCP, lc.getMode());
         assertEquals("192.168.10.50", lc.getHost());
         assertEquals(1502, lc.getTcpPort());
-        assertEquals("/dev/ttyUSB0", lc.getSerialPort());
-        assertEquals(57600, lc.getBaudRate());
-        assertEquals(7, lc.getSlaveId());
+        assertEquals(7, lc.getStationId());
         assertEquals(100, lc.getPollIntervalMs());
     }
 
@@ -138,7 +136,7 @@ class UserConfigStoreTest {
         assertNotSame(cfg, copy);
         assertNotSame(cfg.getDefaultCommSettings(), copy.getDefaultCommSettings());
         copy.getDefaultCommSettings().setTcpPort(9999);
-        assertEquals(502, cfg.getDefaultCommSettings().getTcpPort());
+        assertEquals(CommSettings.DEFAULT_MARAPROT_TCP_PORT, cfg.getDefaultCommSettings().getTcpPort());
     }
 
     @Test

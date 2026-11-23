@@ -56,6 +56,11 @@ public final class GraphicElementRenderer {
     }
 
     public static void paint(Graphics2D g, ScadaGraphicElement elem, int gridSizePx, boolean selected) {
+        paint(g, elem, gridSizePx, selected, false);
+    }
+
+    public static void paint(Graphics2D g, ScadaGraphicElement elem, int gridSizePx, boolean selected,
+                             boolean indicatorActive) {
         if (elem == null) return;
 
         Composite oldComp = g.getComposite();
@@ -135,8 +140,15 @@ public final class GraphicElementRenderer {
             default -> {
                 Shape shape = buildShape(elem, x, y, w, h);
                 if (shape != null) {
-                    if (elem.isFilled()) {
-                        g.setColor(elem.getFillColor());
+                    boolean isIndicator = elem.isIndicatorEnabled()
+                            && elem.getIndicatorPin() != null
+                            && !elem.getIndicatorPin().isBlank();
+                    boolean shouldFill = elem.isFilled() || isIndicator;
+                    Color effectiveFill = isIndicator
+                            ? (indicatorActive ? elem.getIndicatorActiveColor() : elem.getIndicatorInactiveColor())
+                            : elem.getFillColor();
+                    if (shouldFill) {
+                        g.setColor(effectiveFill);
                         g.fill(shape);
                     }
                     g.setColor(elem.getStrokeColor());

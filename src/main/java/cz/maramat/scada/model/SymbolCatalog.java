@@ -779,7 +779,7 @@ public final class SymbolCatalog {
         ));
 
         // 8. Operator Controls & Readouts
-        register("PushButton", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 4, 4, 4, 4, false, List.of(
+        register("PushButton", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 4, 4, 2, 2, true, List.of(
                 new PortSpec("sig", "Contact", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
         ));
         register("SelectorSwitch", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 4, 4, 4, 4, false, List.of(
@@ -788,7 +788,7 @@ public final class SymbolCatalog {
         register("EStopMushroom", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 5, 5, 5, 5, false, List.of(
                 new PortSpec("sig", "Safety NC", 1.0, 0.5, CardinalDirection.EAST, ConnectionType.CONTROL_SIGNAL)
         ));
-        register("PilotLamp", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 4, 4, 4, 4, false, List.of(
+        register("PilotLamp", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 4, 4, 2, 2, true, List.of(
                 new PortSpec("sig", "Input", 0.0, 0.5, CardinalDirection.WEST, ConnectionType.CONTROL_SIGNAL)
         ));
         register("NumericReadout", "Operator Controls", EquipmentDomain.OPERATOR_CONTROL, 8, 4, 6, 3, true, List.of());

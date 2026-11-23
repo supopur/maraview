@@ -3,12 +3,15 @@ package cz.maramat.scada.ui;
 import cz.maramat.scada.model.EquipmentDomain;
 import cz.maramat.scada.model.FluidType;
 import cz.maramat.scada.model.ScadaProject;
+import cz.maramat.scada.model.ScadaScreen;
 import cz.maramat.scada.model.ScadaSymbolInstance;
 import cz.maramat.scada.model.SymbolCatalog;
+import cz.maramat.scada.render.ScadaPalette;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JColorChooser;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -19,6 +22,7 @@ import javax.swing.JSplitPane;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -56,6 +60,8 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
     private String manualLevelOrPosKey;
     private JComboBox<FluidType> fluidCombo;
     private JComboBox<String> buttonModeCombo;
+    private Color selectedControlColor;
+    private boolean hasControlColorEditor = false;
     private JComboBox<String> voltageCombo;
     private JTextField ratedPowerField;
     private JTextField setpointField;
@@ -196,6 +202,23 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
                     buttonModeCombo.setSelectedItem("Momentary".equalsIgnoreCase(savedMode) ? "Momentary" : "Toggle");
                     addRow(leftPanel, lgbc, lr++, "Button Mode:", buttonModeCombo);
                 }
+                if (st.equals("PushButton") || st.equals("PilotLamp")) {
+                    hasControlColorEditor = true;
+                    Color defaultCol = st.equals("PushButton")
+                            ? new Color(0x2E, 0xCC, 0x71)
+                            : ScadaPalette.STATE_RUNNING_LED;
+                    selectedControlColor = ScadaScreen.parseHexColor(symbol.getProperties().get("Color"), defaultCol);
+                    JButton colorBtn = new JButton("Choose Color...");
+                    colorBtn.setBackground(selectedControlColor);
+                    colorBtn.addActionListener(e -> {
+                        Color picked = JColorChooser.showDialog(this, st + " Color", selectedControlColor);
+                        if (picked != null) {
+                            selectedControlColor = picked;
+                            colorBtn.setBackground(picked);
+                        }
+                    });
+                    addRow(leftPanel, lgbc, lr++, "Color:", colorBtn);
+                }
                 if (SymbolCatalog.hasEngineeringScale(st)) {
                     unitsField = new JTextField(symbol.getProperties().getOrDefault("EngineeringUnits", ""), 12);
                     minField = new JTextField(symbol.getProperties().getOrDefault("Min", "0"), 12);
@@ -320,6 +343,9 @@ public class ScadaSymbolPropertiesDialog extends JDialog {
         }
         if (buttonModeCombo != null && buttonModeCombo.getSelectedItem() != null) {
             symbol.setProperty("ButtonMode", String.valueOf(buttonModeCombo.getSelectedItem()));
+        }
+        if (hasControlColorEditor && selectedControlColor != null) {
+            symbol.setProperty("Color", String.format("#%06X", selectedControlColor.getRGB() & 0xFFFFFF));
         }
         if (voltageCombo != null && voltageCombo.getSelectedItem() != null) {
             symbol.setProperty("voltage", String.valueOf(voltageCombo.getSelectedItem()).trim());

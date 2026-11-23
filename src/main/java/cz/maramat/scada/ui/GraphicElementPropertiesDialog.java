@@ -1,6 +1,7 @@
 package cz.maramat.scada.ui;
 
 import cz.maramat.scada.model.ScadaGraphicElement;
+import cz.maramat.scada.model.ScadaProject;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -37,6 +38,10 @@ public final class GraphicElementPropertiesDialog {
     }
 
     public static boolean showDialog(Window owner, ScadaGraphicElement elem) {
+        return showDialog(owner, null, elem);
+    }
+
+    public static boolean showDialog(Window owner, ScadaProject project, ScadaGraphicElement elem) {
         JDialog dlg = new JDialog(owner, elem.getKind().getDisplayName() + " Properties",
                 JDialog.ModalityType.APPLICATION_MODAL);
         final boolean[] confirmed = {false};
@@ -50,6 +55,13 @@ public final class GraphicElementPropertiesDialog {
 
         final Color[] strokeCol = {elem.getStrokeColor()};
         final Color[] fillCol = {elem.getFillColor()};
+        final Color[] actCol = {elem.getIndicatorActiveColor()};
+        final Color[] inactCol = {elem.getIndicatorInactiveColor()};
+        boolean supportsIndicator = elem.getKind() != ScadaGraphicElement.Kind.LINE
+                && elem.getKind() != ScadaGraphicElement.Kind.TEXT
+                && elem.getKind() != ScadaGraphicElement.Kind.IMAGE;
+        JCheckBox indicatorChk = new JCheckBox("Enable Live Output Indicator (\"Pen\")", elem.isIndicatorEnabled());
+        JTextField indicatorPinField = new JTextField(elem.getIndicatorPin(), 14);
 
         JTextField textField = new JTextField(elem.getText(), 18);
         JSpinner fontSpin = new JSpinner(new SpinnerNumberModel(elem.getFontSize(), 6, 96, 1));
@@ -126,7 +138,68 @@ public final class GraphicElementPropertiesDialog {
                 addRow(form, gbc, row++, "Polygon Sides:", sidesSpin);
             }
         }
-        addRow(form, gbc, row, "Opacity (%):", opacitySlider);
+        addRow(form, gbc, row++, "Opacity (%):", opacitySlider);
+
+        if (supportsIndicator) {
+            JPanel indPanel = new JPanel(new GridBagLayout());
+            indPanel.setBorder(BorderFactory.createTitledBorder("Live Output Indicator (\"Pen\") Binding"));
+            GridBagConstraints igbc = new GridBagConstraints();
+            igbc.insets = new Insets(3, 4, 3, 4);
+            igbc.fill = GridBagConstraints.HORIZONTAL;
+            int irow = 0;
+
+            igbc.gridy = irow++;
+            igbc.gridx = 0;
+            igbc.gridwidth = 2;
+            igbc.weightx = 1.0;
+            indPanel.add(indicatorChk, igbc);
+            igbc.gridwidth = 1;
+
+            JPanel pinRow = new JPanel(new BorderLayout(4, 0));
+            pinRow.add(indicatorPinField, BorderLayout.CENTER);
+            JButton pickPinBtn = new JButton("...");
+            pickPinBtn.setMargin(new Insets(1, 6, 1, 6));
+            pickPinBtn.setEnabled(project != null);
+            pickPinBtn.addActionListener(e -> {
+                OperandPickerDialog picker = new OperandPickerDialog(dlg, project, indicatorPinField.getText());
+                picker.setVisible(true);
+                if (picker.getSelectedTagName() != null) {
+                    indicatorPinField.setText(picker.getSelectedTagName());
+                }
+            });
+            pinRow.add(pickPinBtn, BorderLayout.EAST);
+            addRow(indPanel, igbc, irow++, "Output Pin / Tag:", pinRow);
+
+            JPanel indColors = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            JButton actColBtn = new JButton("Active (ON)...");
+            actColBtn.setBackground(actCol[0]);
+            actColBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(dlg, "Indicator Active (ON) Fill Color", actCol[0]);
+                if (c != null) {
+                    actCol[0] = c;
+                    actColBtn.setBackground(c);
+                }
+            });
+            JButton inactColBtn = new JButton("Inactive (OFF)...");
+            inactColBtn.setBackground(inactCol[0]);
+            inactColBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(dlg, "Indicator Inactive (OFF) Fill Color", inactCol[0]);
+                if (c != null) {
+                    inactCol[0] = c;
+                    inactColBtn.setBackground(c);
+                }
+            });
+            indColors.add(actColBtn);
+            indColors.add(inactColBtn);
+            addRow(indPanel, igbc, irow, "Indicator Colors:", indColors);
+
+            gbc.gridy = row;
+            gbc.gridx = 0;
+            gbc.gridwidth = 2;
+            gbc.weightx = 1.0;
+            form.add(indPanel, gbc);
+            gbc.gridwidth = 1;
+        }
 
         JPanel btnBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton okBtn = new JButton("OK");
@@ -144,6 +217,12 @@ public final class GraphicElementPropertiesDialog {
             elem.setImagePath(imgPathField.getText());
             elem.setPreserveAspectRatio(aspectChk.isSelected());
             elem.setOpacity(opacitySlider.getValue() / 100.0);
+            if (supportsIndicator) {
+                elem.setIndicatorEnabled(indicatorChk.isSelected());
+                elem.setIndicatorPin(indicatorPinField.getText());
+                elem.setIndicatorActiveColor(actCol[0]);
+                elem.setIndicatorInactiveColor(inactCol[0]);
+            }
             confirmed[0] = true;
             dlg.dispose();
         });

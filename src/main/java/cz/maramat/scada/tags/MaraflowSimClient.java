@@ -2,16 +2,17 @@ package cz.maramat.scada.tags;
 
 import cz.maramat.scada.model.CommSettings;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.net.URLDecoder;
-import java.net.URLEncoder;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -20,10 +21,31 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * TCP client implementing {@link PlcTagEndpoint} and simulation control
- * against a running Maraflow {@code SimulatorBridgeServer}.
+ * MaraProt v1 TCP client implementing {@link PlcTagEndpoint} and runtime control
+ * against either a running MaraFlow Simulator or a physical F407PLC over TCP/IP.
  */
 public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
+
+    public static final int MAGIC_0 = 0x4D;
+    public static final int MAGIC_1 = 0x50;
+    public static final int VERSION_1 = 0x10;
+    public static final int FLAG_ENCRYPTED = 0x04;
+    public static final int HEADER_BYTES = 10;
+    public static final int CRC_BYTES = 2;
+
+    public static final int OP_PING = 0x01;
+    public static final int OP_GET_INFO = 0x02;
+    public static final int OP_AUTH_CHALLENGE = 0x03;
+    public static final int OP_AUTH_VERIFY = 0x04;
+    public static final int OP_VM_STATUS = 0x10;
+    public static final int OP_VM_CONTROL = 0x11;
+    public static final int OP_OPERAND_READ_BATCH = 0x60;
+    public static final int OP_OPERAND_WRITE_BATCH = 0x61;
+
+    public static final int CTRL_STOP = 0;
+    public static final int CTRL_START = 1;
+    public static final int CTRL_PAUSE = 2;
+    public static final int CTRL_ESTOP_RESET = 5;
 
     public record SimStatus(
             boolean online,
@@ -38,40 +60,57 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         }
     }
 
-    private static final int CONNECT_TIMEOUT_MS = 350;
-    private static final int SO_TIMEOUT_MS = 800;
+    private static final int CONNECT_TIMEOUT_MS = 500;
+    private static final int SO_TIMEOUT_MS = 1000;
     private static final long RECONNECT_COOLDOWN_MS = 1000L;
 
     private final Object ioLock = new Object();
     private final Map<String, Double> cache = new ConcurrentHashMap<>();
-    private final List<String> subscribedKeys = new ArrayList<>();
-    private boolean subscriptionActive = false;
-    private boolean pollDeltaSupported = true;
 
     private volatile String host = "127.0.0.1";
     private volatile int port = CommSettings.DEFAULT_MARAFLOW_SIM_PORT;
+    private volatile int stationId = 1;
+    private volatile String password = "admin";
     private volatile boolean connected = false;
     private volatile long lastConnectAttemptMs = 0L;
     private volatile SimStatus lastStatus = SimStatus.offline("Not connected");
 
     private Socket socket;
-    private BufferedReader in;
-    private PrintWriter out;
+    private InputStream in;
+    private OutputStream out;
+    private int nextSeqId = 1;
+    private byte[] sessionKey;
+    private boolean encryptEnabled = false;
 
     public MaraflowSimClient() {
     }
 
     public MaraflowSimClient(String host, int port) {
-        configure(host, port);
+        configure(host, port, 1, "admin");
+    }
+
+    public MaraflowSimClient(String host, int port, int stationId, String password) {
+        configure(host, port, stationId, password);
     }
 
     public void configure(String host, int port) {
+        configure(host, port, this.stationId, this.password);
+    }
+
+    public void configure(String host, int port, int stationId, String password) {
         String normalizedHost = (host == null || host.isBlank()) ? "127.0.0.1" : host.trim();
         int normalizedPort = (port <= 0 || port > 65535) ? CommSettings.DEFAULT_MARAFLOW_SIM_PORT : port;
+        int normalizedStation = Math.max(0, Math.min(254, stationId));
+        String normalizedPw = (password == null) ? "" : password;
         synchronized (ioLock) {
-            boolean changed = !normalizedHost.equals(this.host) || normalizedPort != this.port;
+            boolean changed = !normalizedHost.equals(this.host)
+                    || normalizedPort != this.port
+                    || normalizedStation != this.stationId
+                    || !normalizedPw.equals(this.password);
             this.host = normalizedHost;
             this.port = normalizedPort;
+            this.stationId = normalizedStation;
+            this.password = normalizedPw;
             if (changed) {
                 closeSocketLocked("Reconfigured");
                 this.lastConnectAttemptMs = 0L;
@@ -79,22 +118,19 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         }
     }
 
-    public String getHost() {
-        return host;
-    }
+    public String getHost() { return host; }
+    public int getPort() { return port; }
+    public int getStationId() { return stationId; }
+    public SimStatus getLastStatus() { return lastStatus; }
 
-    public int getPort() {
-        return port;
-    }
-
-    public SimStatus getLastStatus() {
-        return lastStatus;
+    @Override
+    public boolean isOnline() {
+        return connected && lastStatus.online();
     }
 
     public void disconnect() {
         synchronized (ioLock) {
             closeSocketLocked("Disconnected");
-            cache.clear();
         }
     }
 
@@ -103,34 +139,103 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         disconnect();
     }
 
-    @Override
-    public boolean isOnline() {
-        return connected;
+    private void ensureConnectedLocked() throws IOException {
+        if (connected && socket != null && !socket.isClosed()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastConnectAttemptMs < RECONNECT_COOLDOWN_MS) {
+            throw new IOException(lastStatus.errorMessage().isBlank() ? "Reconnect cooldown" : lastStatus.errorMessage());
+        }
+        lastConnectAttemptMs = now;
+
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            s.setTcpNoDelay(true);
+            s.setSoTimeout(SO_TIMEOUT_MS);
+            this.socket = s;
+            this.in = s.getInputStream();
+            this.out = s.getOutputStream();
+            this.sessionKey = null;
+            this.encryptEnabled = false;
+            this.connected = true;
+            authenticateLocked();
+        } catch (IOException ex) {
+            try { s.close(); } catch (IOException ignored) {}
+            this.socket = null;
+            this.in = null;
+            this.out = null;
+            this.connected = false;
+            this.lastStatus = SimStatus.offline(ex.getMessage());
+            throw ex;
+        }
     }
 
-    @Override
-    public String getStatusLabel() {
-        SimStatus st = lastStatus;
-        if (!connected || !st.online()) {
-            return "OFFLINE";
+    private void authenticateLocked() throws IOException {
+        byte[] chal = transceiveLocked(OP_AUTH_CHALLENGE, new byte[0], false);
+        if (chal.length < 17) {
+            throw new IOException("Invalid AUTH_CHALLENGE response");
         }
-        return "ONLINE (" + st.simState() + ")";
+        boolean authRequired = chal[0] != 0;
+        byte[] challenge = new byte[16];
+        System.arraycopy(chal, 1, challenge, 0, 16);
+        if (!authRequired) {
+            this.sessionKey = null;
+            this.encryptEnabled = false;
+            return;
+        }
+        byte[] pwBytes = password.getBytes(StandardCharsets.UTF_8);
+        byte[] key = sha256Two(pwBytes, challenge);
+        byte[] proof = sha256Two(key, challenge);
+        byte[] verify = transceiveLocked(OP_AUTH_VERIFY, proof, false);
+        if (verify.length < 1 || verify[0] == 0) {
+            throw new IOException("Authentication failed");
+        }
+        this.sessionKey = key;
+        this.encryptEnabled = true;
     }
 
-    public boolean connectNow() {
-        synchronized (ioLock) {
-            lastConnectAttemptMs = 0L;
-            return ensureConnectedLocked();
+    private void closeSocketLocked(String reason) {
+        connected = false;
+        sessionKey = null;
+        encryptEnabled = false;
+        if (socket != null) {
+            try { socket.close(); } catch (IOException ignored) {}
         }
+        socket = null;
+        in = null;
+        out = null;
+        lastStatus = SimStatus.offline(reason);
     }
 
     public SimStatus refreshStatus() {
         synchronized (ioLock) {
-            if (!ensureConnectedLocked()) {
-                return lastStatus;
-            }
             try {
-                return refreshStatusLocked();
+                ensureConnectedLocked();
+                byte[] info = transceiveLocked(OP_GET_INFO, new byte[0], encryptEnabled);
+                String modelName = "";
+                if (info.length >= 44) {
+                    int n = 0;
+                    while (n < 24 && info[20 + n] != 0) n++;
+                    modelName = new String(info, 20, n, StandardCharsets.US_ASCII);
+                }
+                byte[] st = transceiveLocked(OP_VM_STATUS, new byte[0], encryptEnabled);
+                String stateName = "STOPPED";
+                boolean estop = false;
+                if (st.length >= 2) {
+                    stateName = switch (st[0] & 0xFF) {
+                        case 1 -> "RUNNING";
+                        case 2 -> "PAUSED";
+                        case 3 -> "FAULT";
+                        case 4 -> "ESTOP";
+                        default -> "STOPPED";
+                    };
+                    estop = st[1] != 0;
+                }
+                SimStatus status = new SimStatus(true, stateName, estop, 1.0, modelName, "");
+                lastStatus = status;
+                return status;
             } catch (IOException ex) {
                 closeSocketLocked(ex.getMessage());
                 return lastStatus;
@@ -138,234 +243,118 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         }
     }
 
-    private SimStatus refreshStatusLocked() throws IOException {
-        String resp = sendCommandLocked("STATUS");
-        SimStatus parsed = parseStatusResponse(resp);
-        this.lastStatus = parsed;
-        return parsed;
-    }
-
-    public boolean ping() {
+    public SimStatus sendCommand(String cmd) {
         synchronized (ioLock) {
-            if (!ensureConnectedLocked()) {
-                return false;
-            }
             try {
-                String resp = sendCommandLocked("PING");
-                return resp != null && resp.startsWith("OK");
+                ensureConnectedLocked();
+                String upper = cmd == null ? "" : cmd.trim().toUpperCase();
+                int action = switch (upper) {
+                    case "START" -> CTRL_START;
+                    case "PAUSE" -> CTRL_PAUSE;
+                    case "ESTOP_RESET" -> CTRL_ESTOP_RESET;
+                    default -> CTRL_STOP;
+                };
+                transceiveLocked(OP_VM_CONTROL, new byte[]{(byte) action}, encryptEnabled);
+                return refreshStatus();
             } catch (IOException ex) {
                 closeSocketLocked(ex.getMessage());
-                return false;
+                return lastStatus;
             }
         }
     }
 
-    public boolean startSimulation() {
-        return sendSimpleStateCommand("START");
-    }
+    public boolean startSimulation() { return sendCommand("START").online(); }
+    public boolean pauseSimulation() { return sendCommand("PAUSE").online(); }
+    public boolean stopSimulation() { return sendCommand("STOP").online(); }
 
-    public boolean pauseSimulation() {
-        return sendSimpleStateCommand("PAUSE");
-    }
-
-    public boolean stopSimulation() {
-        return sendSimpleStateCommand("STOP");
-    }
-
-    public boolean setEStop(boolean pressed) {
-        return sendSimpleStateCommand("ESTOP " + (pressed ? "1" : "0"));
-    }
-
-    public boolean resetEStop() {
-        return sendSimpleStateCommand("ESTOP_RESET");
-    }
-
-    public boolean setSpeed(double multiplier) {
-        return sendSimpleStateCommand("SPEED " + multiplier);
+    public Map<String, Double> pollStatusAndOperands(Collection<String> keys) {
+        refreshStatus();
+        return readOperands(keys);
     }
 
     @Override
     public double readOperand(String operandOrAddress) {
-        if (operandOrAddress == null || operandOrAddress.isBlank()) {
-            return 0.0;
-        }
-        String key = operandOrAddress.trim();
-        synchronized (ioLock) {
-            if (!ensureConnectedLocked()) {
-                Double cached = cache.get(key);
-                return cached != null ? cached : 0.0;
-            }
-            try {
-                String resp = sendCommandLocked("GET " + encode(key));
-                if (resp != null && resp.startsWith("OK ")) {
-                    double val = Double.parseDouble(resp.substring(3).trim());
-                    cache.put(key, val);
-                    return val;
-                }
-            } catch (IOException ex) {
-                closeSocketLocked(ex.getMessage());
-            } catch (NumberFormatException ignored) {
-            }
-            Double cached = cache.get(key);
-            return cached != null ? cached : 0.0;
-        }
+        if (operandOrAddress == null || operandOrAddress.isBlank()) return 0.0;
+        Map<String, Double> m = readOperands(List.of(operandOrAddress));
+        return m.getOrDefault(operandOrAddress.trim(), 0.0);
     }
 
     @Override
     public Map<String, Double> readOperands(Collection<String> operandsOrAddresses) {
-        List<String> keys = normalizeKeys(operandsOrAddresses);
-        if (keys.isEmpty()) {
-            return new LinkedHashMap<>();
-        }
-        synchronized (ioLock) {
-            if (!ensureConnectedLocked()) {
-                return new LinkedHashMap<>();
-            }
-            try {
-                return readOperandsLocked(keys);
-            } catch (IOException ex) {
-                closeSocketLocked(ex.getMessage());
-                return new LinkedHashMap<>();
-            }
-        }
-    }
-
-    /**
-     * Fetches simulation status and all subscribed operand values using the server's
-     * {@code SUB}/{@code POLL} delta protocol when available (one TCP round-trip per poll),
-     * falling back transparently to {@code STATUS} + {@code MGET} against older servers.
-     */
-    public Map<String, Double> pollStatusAndOperands(Collection<String> operandsOrAddresses) {
-        List<String> keys = normalizeKeys(operandsOrAddresses);
-        synchronized (ioLock) {
-            if (!ensureConnectedLocked()) {
-                return Map.of();
-            }
-            try {
-                if (pollDeltaSupported) {
-                    if (!subscriptionActive || !subscribedKeys.equals(keys)) {
-                        StringBuilder subCmd = new StringBuilder("SUB");
-                        for (String k : keys) {
-                            subCmd.append(' ').append(encode(k));
-                        }
-                        String subResp = sendCommandLocked(subCmd.toString());
-                        if (subResp != null && subResp.startsWith("OK")) {
-                            subscribedKeys.clear();
-                            subscribedKeys.addAll(keys);
-                            subscriptionActive = true;
-                        } else {
-                            pollDeltaSupported = false;
-                            subscriptionActive = false;
-                            subscribedKeys.clear();
-                        }
-                    }
-                    if (pollDeltaSupported && subscriptionActive) {
-                        String pollResp = sendCommandLocked("POLL");
-                        if (pollResp != null && pollResp.startsWith("OK")) {
-                            return applyPollResponseLocked(pollResp, keys);
-                        }
-                        pollDeltaSupported = false;
-                        subscriptionActive = false;
-                        subscribedKeys.clear();
-                    }
-                }
-                refreshStatusLocked();
-                if (keys.isEmpty()) {
-                    return Map.of();
-                }
-                return readOperandsLocked(keys);
-            } catch (IOException ex) {
-                closeSocketLocked(ex.getMessage());
-                return Map.of();
-            }
-        }
-    }
-
-    private static List<String> normalizeKeys(Collection<String> operandsOrAddresses) {
-        if (operandsOrAddresses == null || operandsOrAddresses.isEmpty()) {
-            return List.of();
-        }
-        List<String> keys = new ArrayList<>(operandsOrAddresses.size());
-        for (String op : operandsOrAddresses) {
-            if (op != null && !op.isBlank()) {
-                keys.add(op.trim());
-            }
-        }
-        return keys;
-    }
-
-    private Map<String, Double> readOperandsLocked(List<String> keys) throws IOException {
         Map<String, Double> result = new LinkedHashMap<>();
-        StringBuilder cmd = new StringBuilder("MGET");
-        for (String k : keys) {
-            cmd.append(' ').append(encode(k));
+        if (operandsOrAddresses == null || operandsOrAddresses.isEmpty()) {
+            return result;
         }
-        String resp = sendCommandLocked(cmd.toString());
-        if (resp != null && resp.startsWith("OK")) {
-            String[] parts = resp.split("\\s+");
-            for (int i = 0; i < keys.size() && (i + 1) < parts.length; i++) {
-                try {
-                    double val = Double.parseDouble(parts[i + 1]);
-                    String k = keys.get(i);
-                    cache.put(k, val);
-                    result.put(k, val);
-                } catch (NumberFormatException ignored) {
-                }
-            }
+        List<String> keys = new ArrayList<>();
+        for (String k : operandsOrAddresses) {
+            if (k != null && !k.isBlank()) keys.add(k.trim());
         }
-        return result;
-    }
+        if (keys.isEmpty()) return result;
 
-    private Map<String, Double> applyPollResponseLocked(String resp, List<String> keys) {
-        String[] tokens = resp.split("\\s+");
-        int pipeIdx = -1;
-        for (int i = 1; i < tokens.length; i++) {
-            if ("|".equals(tokens[i])) {
-                pipeIdx = i;
-                break;
-            }
-        }
-        int statusEnd = (pipeIdx >= 0) ? pipeIdx : tokens.length;
-        this.lastStatus = parseStatusTokens(tokens, 1, statusEnd);
-        if (pipeIdx >= 0) {
-            for (int i = pipeIdx + 1; i < tokens.length; i++) {
-                String tok = tokens[i];
-                int eq = tok.indexOf('=');
-                if (eq <= 0 || eq >= tok.length() - 1) continue;
-                try {
-                    int idx = Integer.parseInt(tok.substring(0, eq));
-                    if (idx < 0 || idx >= subscribedKeys.size()) continue;
-                    double val = Double.parseDouble(tok.substring(eq + 1));
-                    cache.put(subscribedKeys.get(idx), val);
-                } catch (NumberFormatException ignored) {
+        synchronized (ioLock) {
+            try {
+                ensureConnectedLocked();
+                if (lastStatus == null || !lastStatus.online()) {
+                    refreshStatus();
                 }
+                int idx = 0;
+                while (idx < keys.size()) {
+                    ByteArrayOutputStream req = new ByteArrayOutputStream();
+                    int batchStart = idx;
+                    int batchCount = 0;
+                    req.write(0);
+                    req.write(0);
+                    while (idx < keys.size()) {
+                        byte[] nameBytes = keys.get(idx).getBytes(StandardCharsets.UTF_8);
+                        if (req.size() + 2 + nameBytes.length > 480 && batchCount > 0) break;
+                        req.write(nameBytes.length & 0xFF);
+                        req.write((nameBytes.length >>> 8) & 0xFF);
+                        req.write(nameBytes, 0, nameBytes.length);
+                        batchCount++;
+                        idx++;
+                    }
+                    byte[] reqBytes = req.toByteArray();
+                    reqBytes[0] = (byte) (batchCount & 0xFF);
+                    reqBytes[1] = (byte) ((batchCount >>> 8) & 0xFF);
+                    byte[] resp = transceiveLocked(OP_OPERAND_READ_BATCH, reqBytes, encryptEnabled);
+                    if (resp.length >= 2) {
+                        ByteBuffer bb = ByteBuffer.wrap(resp).order(ByteOrder.LITTLE_ENDIAN);
+                        int respCount = bb.getShort() & 0xFFFF;
+                        for (int i = 0; i < respCount && bb.remaining() >= 8 && (batchStart + i) < keys.size(); i++) {
+                            double val = bb.getDouble();
+                            String key = keys.get(batchStart + i);
+                            result.put(key, val);
+                            cache.put(key, val);
+                        }
+                    }
+                }
+                return result;
+            } catch (IOException ex) {
+                closeSocketLocked(ex.getMessage());
+                for (String key : keys) {
+                    Double cached = cache.get(key);
+                    if (cached != null) result.put(key, cached);
+                }
+                return result;
             }
         }
-        Map<String, Double> result = new LinkedHashMap<>(keys.size() * 2);
-        for (String k : keys) {
-            Double val = cache.get(k);
-            if (val != null) {
-                result.put(k, val);
-            }
-        }
-        return result;
     }
 
     @Override
     public void writeOperand(String operandOrAddress, double value) {
-        if (operandOrAddress == null || operandOrAddress.isBlank()) {
-            return;
-        }
+        if (operandOrAddress == null || operandOrAddress.isBlank()) return;
         String key = operandOrAddress.trim();
+        cache.put(key, value);
         synchronized (ioLock) {
-            if (!ensureConnectedLocked()) {
-                return;
-            }
             try {
-                String resp = sendCommandLocked("SET " + encode(key) + " " + value);
-                if (resp != null && resp.startsWith("OK")) {
-                    cache.put(key, value);
-                }
+                ensureConnectedLocked();
+                byte[] nameBytes = key.getBytes(StandardCharsets.UTF_8);
+                ByteBuffer bb = ByteBuffer.allocate(2 + 2 + nameBytes.length + 8).order(ByteOrder.LITTLE_ENDIAN);
+                bb.putShort((short) 1);
+                bb.putShort((short) nameBytes.length);
+                bb.put(nameBytes);
+                bb.putDouble(value);
+                transceiveLocked(OP_OPERAND_WRITE_BATCH, bb.array(), encryptEnabled);
             } catch (IOException ex) {
                 closeSocketLocked(ex.getMessage());
             }
@@ -373,128 +362,136 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
     }
 
     public static SimStatus testConnection(String host, int port) {
-        try (MaraflowSimClient probe = new MaraflowSimClient(host, port)) {
-            if (!probe.connectNow()) {
-                return probe.getLastStatus();
-            }
+        return testConnection(host, port, 1, "admin");
+    }
+
+    public static SimStatus testConnection(String host, int port, int stationId, String password) {
+        try (MaraflowSimClient probe = new MaraflowSimClient(host, port, stationId, password)) {
             return probe.refreshStatus();
         }
     }
 
-    private boolean sendSimpleStateCommand(String cmd) {
-        synchronized (ioLock) {
-            if (!ensureConnectedLocked()) {
-                return false;
+    private byte[] transceiveLocked(int opcode, byte[] payload, boolean useEncrypt) throws IOException {
+        int seqId = nextSeqId++;
+        if (nextSeqId > 0xFFFF) nextSeqId = 1;
+        byte[] wirePayload = payload;
+        int verFlags = VERSION_1;
+        if (useEncrypt && sessionKey != null) {
+            wirePayload = (payload == null) ? new byte[0] : payload.clone();
+            if (wirePayload.length > 0) {
+                cryptPayload(sessionKey, seqId, 0x01, wirePayload);
             }
-            try {
-                String resp = sendCommandLocked(cmd);
-                if (resp != null && resp.startsWith("OK")) {
-                    String statusResp = sendCommandLocked("STATUS");
-                    this.lastStatus = parseStatusResponse(statusResp);
-                    return true;
-                }
-                return false;
-            } catch (IOException ex) {
-                closeSocketLocked(ex.getMessage());
-                return false;
+            verFlags |= FLAG_ENCRYPTED;
+        }
+        byte[] frame = encodeFrame(stationId, seqId, verFlags, opcode, wirePayload);
+        out.write(frame);
+        out.flush();
+
+        byte[] hdr = new byte[HEADER_BYTES];
+        int state = 0;
+        while (state < 2) {
+            int b = in.read();
+            if (b < 0) throw new IOException("Connection closed by server");
+            if (state == 0 && b == MAGIC_0) {
+                hdr[0] = (byte) b;
+                state = 1;
+            } else if (state == 1 && b == MAGIC_1) {
+                hdr[1] = (byte) b;
+                state = 2;
+            } else {
+                state = (b == MAGIC_0) ? 1 : 0;
             }
+        }
+        readExact(in, hdr, 2, HEADER_BYTES - 2);
+        int rxStatus = hdr[7] & 0xFF;
+        int rxLen = (hdr[8] & 0xFF) | ((hdr[9] & 0xFF) << 8);
+        if (rxLen > 1024) throw new IOException("Invalid payload length: " + rxLen);
+
+        byte[] fullFrame = new byte[HEADER_BYTES + rxLen + CRC_BYTES];
+        System.arraycopy(hdr, 0, fullFrame, 0, HEADER_BYTES);
+        readExact(in, fullFrame, HEADER_BYTES, rxLen + CRC_BYTES);
+
+        int crcCalc = calcCrc16(fullFrame, HEADER_BYTES + rxLen);
+        int crcRx = (fullFrame[HEADER_BYTES + rxLen] & 0xFF) | ((fullFrame[HEADER_BYTES + rxLen + 1] & 0xFF) << 8);
+        if (crcCalc != crcRx) throw new IOException("CRC mismatch on MaraProt response");
+        if (rxStatus != 0) {
+            throw new IOException("MaraProt error status=" + rxStatus + " (op=0x" + Integer.toHexString(opcode) + ")");
+        }
+
+        byte[] respPayload = new byte[rxLen];
+        if (rxLen > 0) System.arraycopy(fullFrame, HEADER_BYTES, respPayload, 0, rxLen);
+        int rxVerFlags = fullFrame[2] & 0xFF;
+        if ((rxVerFlags & FLAG_ENCRYPTED) != 0 && sessionKey != null && rxLen > 0) {
+            int rxSeq = (fullFrame[4] & 0xFF) | ((fullFrame[5] & 0xFF) << 8);
+            cryptPayload(sessionKey, rxSeq, 0x02, respPayload);
+        }
+        return respPayload;
+    }
+
+    private static void readExact(InputStream in, byte[] buf, int off, int len) throws IOException {
+        int read = 0;
+        while (read < len) {
+            int n = in.read(buf, off + read, len - read);
+            if (n < 0) throw new IOException("Connection closed");
+            read += n;
         }
     }
 
-    private boolean ensureConnectedLocked() {
-        if (connected && socket != null && !socket.isClosed()) {
-            return true;
+    private static byte[] encodeFrame(int stationId, int seqId, int verFlags, int opcode, byte[] payload) {
+        int pLen = (payload != null) ? payload.length : 0;
+        byte[] frame = new byte[HEADER_BYTES + pLen + CRC_BYTES];
+        frame[0] = (byte) MAGIC_0;
+        frame[1] = (byte) MAGIC_1;
+        frame[2] = (byte) (verFlags & 0xFF);
+        frame[3] = (byte) (stationId & 0xFF);
+        frame[4] = (byte) (seqId & 0xFF);
+        frame[5] = (byte) ((seqId >>> 8) & 0xFF);
+        frame[6] = (byte) (opcode & 0xFF);
+        frame[7] = 0;
+        frame[8] = (byte) (pLen & 0xFF);
+        frame[9] = (byte) ((pLen >>> 8) & 0xFF);
+        if (pLen > 0) {
+            System.arraycopy(payload, 0, frame, HEADER_BYTES, pLen);
         }
-        long now = System.currentTimeMillis();
-        if (now - lastConnectAttemptMs < RECONNECT_COOLDOWN_MS) {
-            return false;
+        int crc = calcCrc16(frame, HEADER_BYTES + pLen);
+        frame[HEADER_BYTES + pLen] = (byte) (crc & 0xFF);
+        frame[HEADER_BYTES + pLen + 1] = (byte) ((crc >>> 8) & 0xFF);
+        return frame;
+    }
+
+    private static int calcCrc16(byte[] data, int len) {
+        int crc = 0xFFFF;
+        for (int i = 0; i < len; i++) {
+            crc ^= (data[i] & 0xFF) << 8;
+            for (int bit = 0; bit < 8; bit++) {
+                if ((crc & 0x8000) != 0) crc = ((crc << 1) ^ 0x1021) & 0xFFFF;
+                else crc = (crc << 1) & 0xFFFF;
+            }
         }
-        lastConnectAttemptMs = now;
+        return crc;
+    }
+
+    private static byte[] sha256Two(byte[] a, byte[] b) throws IOException {
         try {
-            Socket s = new Socket();
-            s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
-            s.setSoTimeout(SO_TIMEOUT_MS);
-            s.setTcpNoDelay(true);
-            this.socket = s;
-            this.in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
-            this.out = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), true);
-            this.connected = true;
-            this.lastStatus = new SimStatus(true, "CONNECTED", false, 1.0, "", "");
-            return true;
-        } catch (IOException ex) {
-            closeSocketLocked(ex.getMessage());
-            return false;
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            if (a != null && a.length > 0) md.update(a);
+            if (b != null && b.length > 0) md.update(b);
+            return md.digest();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException("SHA-256 unavailable", e);
         }
     }
 
-    private String sendCommandLocked(String command) throws IOException {
-        if (out == null || in == null) {
-            throw new IOException("Not connected");
-        }
-        out.println(command);
-        if (out.checkError()) {
-            throw new IOException("Write failed");
-        }
-        String line = in.readLine();
-        if (line == null) {
-            throw new IOException("Connection closed by Maraflow");
-        }
-        return line;
-    }
-
-    private void closeSocketLocked(String reason) {
-        this.connected = false;
-        this.subscriptionActive = false;
-        this.pollDeltaSupported = true;
-        this.subscribedKeys.clear();
-        this.lastStatus = SimStatus.offline(reason);
-        if (socket != null) {
-            try {
-                socket.close();
-            } catch (IOException ignored) {
+    private static void cryptPayload(byte[] key, int seqId, int dir, byte[] data) throws IOException {
+        byte[] iv = new byte[]{(byte) (seqId & 0xFF), (byte) ((seqId >>> 8) & 0xFF), (byte) (dir & 0xFF), 0};
+        int offset = 0;
+        int blk = 0;
+        while (offset < data.length) {
+            iv[3] = (byte) (blk++ & 0xFF);
+            byte[] stream = sha256Two(key, iv);
+            for (int i = 0; i < 32 && offset < data.length; i++, offset++) {
+                data[offset] ^= stream[i];
             }
         }
-        this.socket = null;
-        this.in = null;
-        this.out = null;
-    }
-
-    private static SimStatus parseStatusResponse(String resp) {
-        if (resp == null || !resp.startsWith("OK")) {
-            return SimStatus.offline(resp == null ? "Empty response" : resp);
-        }
-        String[] tokens = resp.split("\\s+");
-        return parseStatusTokens(tokens, 1, tokens.length);
-    }
-
-    private static SimStatus parseStatusTokens(String[] tokens, int startIdx, int endExclusive) {
-        String state = "UNKNOWN";
-        boolean estop = false;
-        double speed = 1.0;
-        String projectName = "";
-        for (int i = startIdx; i < endExclusive; i++) {
-            int eq = tokens[i].indexOf('=');
-            if (eq <= 0) continue;
-            String k = tokens[i].substring(0, eq);
-            String v = tokens[i].substring(eq + 1);
-            switch (k) {
-                case "state" -> state = v;
-                case "estop" -> estop = "1".equals(v) || "true".equalsIgnoreCase(v);
-                case "speed" -> {
-                    try {
-                        speed = Double.parseDouble(v);
-                    } catch (NumberFormatException ignored) {
-                    }
-                }
-                case "project" -> projectName = URLDecoder.decode(v, StandardCharsets.UTF_8);
-                default -> {
-                }
-            }
-        }
-        return new SimStatus(true, state, estop, speed, projectName, "");
-    }
-
-    private static String encode(String s) {
-        return URLEncoder.encode(s == null ? "" : s, StandardCharsets.UTF_8);
     }
 }

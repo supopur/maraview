@@ -90,8 +90,13 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
                     gPx + "|" + (val != 0.0), cg -> paintLevelSwitch(cg, w, h, gPx, val != 0.0));
             case "ProximitySensor" -> paintCachedDiscrete(g, layerCache, type, w, h,
                     gPx + "|" + (val != 0.0), cg -> paintProximitySensor(cg, w, h, gPx, val != 0.0));
-            case "PushButton" -> paintCachedDiscrete(g, layerCache, type, w, h,
-                    gPx + "|" + (val != 0.0), cg -> paintPushButton(cg, w, h, gPx, val != 0.0));
+            case "PushButton" -> {
+                String colorHex = sym.getProperties().get("Color");
+                Color customColor = parseOptionalHexColor(colorHex);
+                paintCachedDiscrete(g, layerCache, type, w, h,
+                        gPx + "|" + (val != 0.0) + "|" + (colorHex == null ? "" : colorHex),
+                        cg -> paintPushButton(cg, w, h, gPx, val != 0.0, customColor));
+            }
             case "SelectorSwitch" -> {
                 int pos = (int) Math.round(val);
                 paintCachedDiscrete(g, layerCache, type, w, h,
@@ -99,8 +104,13 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
             }
             case "EStopMushroom" -> paintCachedDiscrete(g, layerCache, type, w, h,
                     String.valueOf(val != 0.0), cg -> paintEStopMushroom(cg, w, h, val != 0.0));
-            case "PilotLamp" -> paintCachedDiscrete(g, layerCache, type, w, h,
-                    (val != 0.0) + "|" + state.name(), cg -> paintPilotLamp(cg, w, h, val != 0.0, state));
+            case "PilotLamp" -> {
+                String colorHex = sym.getProperties().get("Color");
+                Color customColor = parseOptionalHexColor(colorHex);
+                paintCachedDiscrete(g, layerCache, type, w, h,
+                        (val != 0.0) + "|" + state.name() + "|" + (colorHex == null ? "" : colorHex),
+                        cg -> paintPilotLamp(cg, w, h, val != 0.0, state, customColor));
+            }
             case "NumericReadout" -> paintCachedDiscrete(g, layerCache, type, w, h,
                     gPx + "|" + formatNumericText(val, units),
                     cg -> paintNumericBox(cg, w, h, gPx, val, units, false));
@@ -198,12 +208,17 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
                 active ? new Color(0xF1, 0xC4, 0x0F) : ScadaPalette.STATE_STOPPED_LED, active);
     }
 
-    private static void paintPushButton(Graphics2D g, int w, int h, int gPx, boolean pressed) {
+    private static void paintPushButton(Graphics2D g, int w, int h, int gPx, boolean pressed, Color customColor) {
         double r = Math.min(w, h) * 0.44;
         double cx = w / 2.0;
         double cy = h / 2.0;
         ScadaShader.paintVoluteCasing(g, cx, cy, r, 0.0, Material.FLANGE_STEEL);
-        Color btnCol = pressed ? new Color(0x2E, 0xCC, 0x71) : new Color(0x1E, 0x84, 0x49);
+        Color btnCol;
+        if (customColor != null) {
+            btnCol = pressed ? customColor : darkenColor(customColor, 0.65f);
+        } else {
+            btnCol = pressed ? new Color(0x2E, 0xCC, 0x71) : new Color(0x1E, 0x84, 0x49);
+        }
         ScadaShader.paintLedIndicator(g, cx, cy, r * 0.68, btnCol, pressed);
     }
 
@@ -234,13 +249,28 @@ public final class InstrumentationControlRenderer implements EquipmentSymbolRend
         ScadaShader.paintLedIndicator(g, cx, cy, r * (engaged ? 0.62 : 0.72), ScadaPalette.STATE_FAULT, engaged);
     }
 
-    private static void paintPilotLamp(Graphics2D g, int w, int h, boolean lit, EquipmentState state) {
+    private static void paintPilotLamp(Graphics2D g, int w, int h, boolean lit, EquipmentState state, Color customColor) {
         double r = Math.min(w, h) * 0.42;
         double cx = w / 2.0;
         double cy = h / 2.0;
         ScadaShader.paintVoluteCasing(g, cx, cy, r, 0.0, Material.FLANGE_STEEL);
-        Color col = (state == EquipmentState.FAULT) ? ScadaPalette.STATE_FAULT : ScadaPalette.STATE_RUNNING_LED;
+        Color col = (customColor != null)
+                ? customColor
+                : ((state == EquipmentState.FAULT) ? ScadaPalette.STATE_FAULT : ScadaPalette.STATE_RUNNING_LED);
         ScadaShader.paintLedIndicator(g, cx, cy, r * 0.70, col, lit);
+    }
+
+    private static Color parseOptionalHexColor(String hex) {
+        if (hex == null || hex.isBlank()) return null;
+        return cz.maramat.scada.model.ScadaScreen.parseHexColor(hex, null);
+    }
+
+    private static Color darkenColor(Color c, float factor) {
+        return new Color(
+                Math.max(0, Math.min(255, Math.round(c.getRed() * factor))),
+                Math.max(0, Math.min(255, Math.round(c.getGreen() * factor))),
+                Math.max(0, Math.min(255, Math.round(c.getBlue() * factor)))
+        );
     }
 
     private static String formatNumericText(double val, String units) {

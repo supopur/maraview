@@ -62,7 +62,7 @@ public class NewProjectWizardDialog extends JDialog {
     // Step 2 controls
     private JComboBox<CommSettings.Mode> commModeCombo;
     private JTextField hostField;
-    private JSpinner portSpin;
+    private JTextField portField;
     private JSpinner pollSpin;
     private JTextField mflPathField;
     private JCheckBox importMflTagsCheck;
@@ -256,23 +256,22 @@ public class NewProjectWizardDialog extends JDialog {
 
         CommSettings def = userConfig.getDefaultCommSettings();
         CommSettings.Mode initialMode = preselectMaraflowSim ? CommSettings.Mode.MARAFLOW_SIM : def.getMode();
-        int initialPort = (initialMode == CommSettings.Mode.MARAFLOW_SIM && def.getTcpPort() == 502)
+        int initialPort = (initialMode == CommSettings.Mode.MARAFLOW_SIM && def.getTcpPort() == CommSettings.DEFAULT_MARAPROT_TCP_PORT)
                 ? CommSettings.DEFAULT_MARAFLOW_SIM_PORT
                 : def.getTcpPort();
 
         commModeCombo = new JComboBox<>(CommSettings.Mode.values());
         commModeCombo.setSelectedItem(initialMode);
         hostField = new JTextField(def.getHost(), 20);
-        portSpin = new JSpinner(new SpinnerNumberModel(initialPort, 1, 65535, 1));
+        portField = ConnectServerDialog.createDigitsOnlyField(String.valueOf(initialPort), 8);
         pollSpin = new JSpinner(new SpinnerNumberModel(def.getPollIntervalMs(), 10, 10000, 10));
 
         commModeCombo.addActionListener(e -> {
             CommSettings.Mode sel = (CommSettings.Mode) commModeCombo.getSelectedItem();
-            int curPort = ((Number) portSpin.getValue()).intValue();
-            if (sel == CommSettings.Mode.MARAFLOW_SIM && curPort == 502) {
-                portSpin.setValue(CommSettings.DEFAULT_MARAFLOW_SIM_PORT);
-            } else if (sel == CommSettings.Mode.MODBUS_TCP && curPort == CommSettings.DEFAULT_MARAFLOW_SIM_PORT) {
-                portSpin.setValue(502);
+            if (sel == CommSettings.Mode.MARAFLOW_SIM) {
+                portField.setText(String.valueOf(CommSettings.DEFAULT_MARAFLOW_SIM_PORT));
+            } else if (sel == CommSettings.Mode.MARAPROT_TCP) {
+                portField.setText(String.valueOf(CommSettings.DEFAULT_MARAPROT_TCP_PORT));
             }
         });
 
@@ -304,7 +303,7 @@ public class NewProjectWizardDialog extends JDialog {
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         p.add(new JLabel("TCP Port:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1.0;
-        p.add(portSpin, gbc);
+        p.add(portField, gbc);
 
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
@@ -414,7 +413,9 @@ public class NewProjectWizardDialog extends JDialog {
         CommSettings comm = p.getCommSettings();
         comm.setMode((CommSettings.Mode) commModeCombo.getSelectedItem());
         comm.setHost(hostField.getText());
-        comm.setTcpPort(((Number) portSpin.getValue()).intValue());
+        int parsedPort = CommSettings.DEFAULT_MARAPROT_TCP_PORT;
+        try { parsedPort = Integer.parseInt(portField.getText().trim()); } catch (NumberFormatException ignored) {}
+        comm.setTcpPort(parsedPort);
         comm.setPollIntervalMs(((Number) pollSpin.getValue()).intValue());
 
         ScadaScreen scr = p.getScreens().getFirst();

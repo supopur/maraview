@@ -44,7 +44,7 @@ class MslProjectSerializerTest {
         project.setLinkedMflPath("/projects/boiler.mfl");
 
         CommSettings comm = project.getCommSettings();
-        comm.setMode(CommSettings.Mode.MODBUS_TCP);
+        comm.setMode(CommSettings.Mode.MARAPROT_TCP);
         comm.setHost("192.168.1.50");
         comm.setTcpPort(1502);
         comm.setSlaveId(3);
@@ -106,7 +106,7 @@ class MslProjectSerializerTest {
         ScadaProject loaded = MslProjectSerializer.loadProject(mslFile);
         assertEquals("BoilerHouseHMI", loaded.getProjectName());
         assertEquals("Line \"A\"\nPrimary steam loop", loaded.getDescription());
-        assertEquals(CommSettings.Mode.MODBUS_TCP, loaded.getCommSettings().getMode());
+        assertEquals(CommSettings.Mode.MARAPROT_TCP, loaded.getCommSettings().getMode());
         assertEquals("192.168.1.50", loaded.getCommSettings().getHost());
         assertEquals(1502, loaded.getCommSettings().getTcpPort());
 

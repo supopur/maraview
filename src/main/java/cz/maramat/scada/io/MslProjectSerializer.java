@@ -486,6 +486,10 @@ public final class MslProjectSerializer {
         m.put("imagePath", g.getImagePath());
         m.put("preserveAspectRatio", g.isPreserveAspectRatio());
         m.put("opacity", g.getOpacity());
+        m.put("indicatorEnabled", g.isIndicatorEnabled());
+        m.put("indicatorPin", g.getIndicatorPin());
+        m.put("indicatorActiveColor", formatHexColor(g.getIndicatorActiveColor()));
+        m.put("indicatorInactiveColor", formatHexColor(g.getIndicatorInactiveColor()));
         return m;
     }
 
@@ -523,6 +527,12 @@ public final class MslProjectSerializer {
         if (opObj instanceof Number n) {
             g.setOpacity(n.doubleValue());
         }
+        g.setIndicatorEnabled(getBoolean(m, "indicatorEnabled", false));
+        g.setIndicatorPin(getString(m, "indicatorPin", ""));
+        g.setIndicatorActiveColor(ScadaScreen.parseHexColor(
+                getString(m, "indicatorActiveColor", "#E53935"), new Color(0xE5, 0x39, 0x35)));
+        g.setIndicatorInactiveColor(ScadaScreen.parseHexColor(
+                getString(m, "indicatorInactiveColor", "#F0F4F8"), new Color(0xF0, 0xF4, 0xF8)));
         return g;
     }
 

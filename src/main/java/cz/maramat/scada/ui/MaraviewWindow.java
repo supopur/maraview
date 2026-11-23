@@ -355,7 +355,7 @@ public class MaraviewWindow extends JFrame {
     private boolean isMaraflowSimMode() {
         return project != null
                 && project.getCommSettings() != null
-                && project.getCommSettings().getMode() == CommSettings.Mode.MARAFLOW_SIM;
+                && project.getCommSettings().isRemoteMaraProt();
     }
 
     private void pollMaraflowSimAsync() {
@@ -615,11 +615,12 @@ public class MaraviewWindow extends JFrame {
         projectOnlyControls.add(tagsMenu);
         JMenuItem importTagsItem = new JMenuItem("Import from Linked .mfl...");
         importTagsItem.addActionListener(e -> onLinkMfl());
-        JMenuItem commSettingsItem = new JMenuItem("Communication Settings...");
-        commSettingsItem.addActionListener(e -> onCommSettings());
         tagsMenu.add(importTagsItem);
-        tagsMenu.addSeparator();
-        tagsMenu.add(commSettingsItem);
+
+        JMenu commMenu = new JMenu("Communication");
+        JMenuItem connectServerItem = new JMenuItem("Connect to server...");
+        connectServerItem.addActionListener(e -> onCommSettings());
+        commMenu.add(connectServerItem);
 
         JMenu simMenu = new JMenu("Simulation");
         simInternalItem = new JRadioButtonMenuItem("Internal Simulator", true);
@@ -653,7 +654,7 @@ public class MaraviewWindow extends JFrame {
         simPauseItem.addActionListener(e -> onSimPause());
         JMenuItem simStopItem = new JMenuItem("Stop");
         simStopItem.addActionListener(e -> onSimStop());
-        JMenuItem simCommItem = new JMenuItem("Simulator & Comm Settings...");
+        JMenuItem simCommItem = new JMenuItem("Connect to server...");
         simCommItem.addActionListener(e -> onCommSettings());
         simMenu.add(simInternalItem);
         simMenu.add(simMaraflowItem);
@@ -696,6 +697,7 @@ public class MaraviewWindow extends JFrame {
         bar.add(viewMenu);
         bar.add(screenMenu);
         bar.add(tagsMenu);
+        bar.add(commMenu);
         bar.add(simMenu);
         bar.add(windowMenu);
         bar.add(helpMenu);
@@ -1063,8 +1065,13 @@ public class MaraviewWindow extends JFrame {
     private void applyCommunicationSettings() {
         if (project == null) return;
         CommSettings comm = project.getCommSettings();
-        if (comm != null && comm.getMode() == CommSettings.Mode.MARAFLOW_SIM) {
-            maraflowSimClient.configure(comm.getHost(), comm.getTcpPort());
+        if (comm != null && comm.isRemoteMaraProt()) {
+            maraflowSimClient.configure(
+                    comm.getHost(),
+                    comm.getTcpPort(),
+                    comm.getStationId(),
+                    ConnectServerDialog.loadSavedPassword()
+            );
             this.tagProvider = maraflowTagProvider;
             if (runtimeSyncTimer != null) {
                 runtimeSyncTimer.setDelay(comm.getPollIntervalMs());
@@ -1083,7 +1090,7 @@ public class MaraviewWindow extends JFrame {
             }
         }
         if (simInternalItem != null && simMaraflowItem != null && comm != null) {
-            boolean mf = comm.getMode() == CommSettings.Mode.MARAFLOW_SIM;
+            boolean mf = comm.isRemoteMaraProt();
             simMaraflowItem.setSelected(mf);
             simInternalItem.setSelected(!mf);
         }
@@ -1354,10 +1361,13 @@ public class MaraviewWindow extends JFrame {
     }
 
     private void onCommSettings() {
-        if (ProjectSettingsDialog.showDialog(this, project, 1)) {
+        if (ConnectServerDialog.showDialog(this, userConfig, project)) {
             applyCommunicationSettings();
             updateTitle();
-            statusLabel.setText(" Updated communication settings (" + project.getCommSettings().getMode() + ")");
+            if (project != null) {
+                statusLabel.setText(" Connected settings updated (" + project.getCommSettings().getHost()
+                        + ":" + project.getCommSettings().getTcpPort() + ")");
+            }
         }
     }
 

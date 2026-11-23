@@ -9,5 +9,6 @@ public enum MflOrigin {
     VIRTUAL_REGISTER,
     X_VAR,
     ST_VARIABLE,
-    HARDWARE_IO
+    HARDWARE_IO,
+    BLOCK_PIN
 }

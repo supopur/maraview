@@ -106,4 +106,35 @@ class MflTagImporterTest {
         assertNotNull(scada.getTag("LocalTest"));
         assertEquals("°C", scada.getTag("TankTemp").getEngineeringUnits());
     }
+
+    @Test
+    void importsBlockOutputPins() {
+        Properties props = new Properties();
+        props.setProperty("project.pageCount", "1");
+        props.setProperty("page.0.name", "Main");
+        props.setProperty("page.0.blockCount", "1");
+        props.setProperty("page.0.block.0.defId", "Logic.AND");
+        props.setProperty("page.0.block.0.name", "And1");
+        props.setProperty("page.0.block.0.inCount", "2");
+        props.setProperty("page.0.block.0.in.0.short", "En");
+        props.setProperty("page.0.block.0.in.0.type", "BOOL");
+        props.setProperty("page.0.block.0.in.1.short", "A");
+        props.setProperty("page.0.block.0.in.1.type", "BOOL");
+        props.setProperty("page.0.block.0.outCount", "1");
+        props.setProperty("page.0.block.0.out.0.short", "Y");
+        props.setProperty("page.0.block.0.out.0.type", "BOOL");
+
+        var imported = MflTagImporter.parseMflProperties(props);
+        ScadaTag pinTag = imported.get("And1.Y");
+        assertNotNull(pinTag);
+        assertEquals(MflOrigin.BLOCK_PIN, pinTag.getMflOrigin());
+        assertEquals("And1.Y", pinTag.getAddressOrRef());
+        assertEquals(DataType.BOOL, pinTag.getDataType());
+
+        ScadaTag inPinTag = imported.get("And1.A");
+        assertNotNull(inPinTag);
+        assertEquals(MflOrigin.BLOCK_PIN, inPinTag.getMflOrigin());
+        assertEquals("And1.A", inPinTag.getAddressOrRef());
+        assertNull(imported.get("And1.En"));
+    }
 }

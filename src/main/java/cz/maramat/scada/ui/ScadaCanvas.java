@@ -310,6 +310,18 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 repaint(x, y, w, h);
             }
         }
+        for (ScadaGraphicElement ge : screen.getGraphics()) {
+            if (!ge.isIndicatorEnabled() || ge.getIndicatorPin() == null || ge.getIndicatorPin().isBlank()) {
+                continue;
+            }
+            if (changedTags.contains(ge.getIndicatorPin())) {
+                int x = ge.normalizedX() * gPx - pad;
+                int y = ge.normalizedY() * gPx - pad;
+                int w = ge.normalizedW() * gPx + pad * 2;
+                int h = ge.normalizedH() * gPx + pad * 2;
+                repaint(x, y, w, h);
+            }
+        }
     }
 
     private void repaintAnimatedRegions() {
@@ -811,7 +823,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 if (!operatorMode && selectedGraphicIds.contains(ge.getId())) {
                     continue;
                 }
-                GraphicElementRenderer.paint(pg, ge, gPx, false);
+                GraphicElementRenderer.paint(pg, ge, gPx, false, isGraphicIndicatorActive(ge));
             }
 
             // 4. Non-dragged pipes: metallic shell + stationary pressurized fluid / idle wire core
@@ -864,7 +876,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             boolean sel = !operatorMode && selectedGraphicIds.contains(ge.getId());
             h = (h ^ (sel ? 1L : 0L)) * 1099511628211L;
             if (!sel) {
-                h = hashGraphicElement(h, ge);
+                h = hashGraphicElement(h, ge, isGraphicIndicatorActive(ge));
             }
         }
 
@@ -892,7 +904,16 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         return h;
     }
 
-    private static long hashGraphicElement(long h, ScadaGraphicElement ge) {
+    private boolean isGraphicIndicatorActive(ScadaGraphicElement ge) {
+        if (simState == SimState.STOPPED || ge == null || !ge.isIndicatorEnabled()
+                || ge.getIndicatorPin() == null || ge.getIndicatorPin().isBlank()
+                || project == null || tagProvider == null) {
+            return false;
+        }
+        return Math.abs(tagProvider.readTag(project, ge.getIndicatorPin())) >= 0.5;
+    }
+
+    private static long hashGraphicElement(long h, ScadaGraphicElement ge, boolean indicatorActive) {
         h = (h ^ Objects.hashCode(ge.getId())) * 1099511628211L;
         h = (h ^ (ge.getKind() != null ? ge.getKind().ordinal() : -1)) * 1099511628211L;
         h = (h ^ ge.getGridX()) * 1099511628211L;
@@ -911,6 +932,11 @@ public class ScadaCanvas extends JComponent implements Scrollable {
         h = (h ^ Objects.hashCode(ge.getImageBase64())) * 1099511628211L;
         h = (h ^ (ge.isPreserveAspectRatio() ? 1L : 0L)) * 1099511628211L;
         h = (h ^ Double.doubleToLongBits(ge.getOpacity())) * 1099511628211L;
+        h = (h ^ (ge.isIndicatorEnabled() ? 1L : 0L)) * 1099511628211L;
+        h = (h ^ Objects.hashCode(ge.getIndicatorPin())) * 1099511628211L;
+        h = (h ^ (ge.getIndicatorActiveColor() != null ? ge.getIndicatorActiveColor().getRGB() : 0)) * 1099511628211L;
+        h = (h ^ (ge.getIndicatorInactiveColor() != null ? ge.getIndicatorInactiveColor().getRGB() : 0)) * 1099511628211L;
+        h = (h ^ (indicatorActive ? 1L : 0L)) * 1099511628211L;
         return h;
     }
 
@@ -1110,7 +1136,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     if (clip != null && !graphicIntersectsClip(ge, gPx, clip)) {
                         continue;
                     }
-                    GraphicElementRenderer.paint(g, ge, gPx, true);
+                    GraphicElementRenderer.paint(g, ge, gPx, true, isGraphicIndicatorActive(ge));
                 }
                 if (creatingGraphic != null) {
                     GraphicElementRenderer.paint(g, creatingGraphic, gPx, true);
@@ -1584,7 +1610,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                     if (e.getClickCount() == 2) {
                         UndoManager50.Snapshot before = UndoManager50.capture("Edit Graphic Properties", screen);
                         if (GraphicElementPropertiesDialog.showDialog(
-                                SwingUtilities.getWindowAncestor(ScadaCanvas.this), gHit)) {
+                                SwingUtilities.getWindowAncestor(ScadaCanvas.this), project, gHit)) {
                             undoManager.recordSnapshot(before);
                             markDirty();
                             repaint();
@@ -2280,7 +2306,7 @@ public class ScadaCanvas extends JComponent implements Scrollable {
             propsItem.setFont(new Font(propsItem.getFont().getName(), Font.BOLD, propsItem.getFont().getSize()));
             propsItem.addActionListener(ev -> {
                 UndoManager50.Snapshot before = screen != null ? UndoManager50.capture("Edit Graphic Properties", screen) : null;
-                if (GraphicElementPropertiesDialog.showDialog(SwingUtilities.getWindowAncestor(this), gHit)) {
+                if (GraphicElementPropertiesDialog.showDialog(SwingUtilities.getWindowAncestor(this), project, gHit)) {
                     if (before != null) {
                         undoManager.recordSnapshot(before);
                     }
@@ -2802,8 +2828,13 @@ public class ScadaCanvas extends JComponent implements Scrollable {
                 repaint();
             }
             case "SelectorSwitch" -> {
-                int next = ((int) Math.round(cur) + 1) % 3;
-                tagProvider.writeTag(project, targetTag, next);
+                cz.maramat.scada.tags.ScadaTag targetScadaTag = project.getTag(targetTag);
+                if (targetScadaTag != null && targetScadaTag.getDataType() == cz.maramat.scada.model.DataType.BOOL) {
+                    tagProvider.writeTag(project, targetTag, (cur != 0.0) ? 0.0 : 1.0);
+                } else {
+                    int next = ((int) Math.round(cur) + 1) % 3;
+                    tagProvider.writeTag(project, targetTag, next);
+                }
                 repaint();
             }
             case "NumericSetpoint" -> {

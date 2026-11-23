@@ -1,12 +1,15 @@
 package cz.maramat.scada.tags;
 
 import cz.maramat.scada.model.DataType;
+import cz.maramat.scada.model.ScadaGraphicElement;
 import cz.maramat.scada.model.ScadaProject;
+import cz.maramat.scada.model.ScadaScreen;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -28,6 +31,7 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
     private volatile Executor writeExecutor;
     private final AtomicLong revision = new AtomicLong(0L);
     private final Set<String> lastChangedTagNames = new LinkedHashSet<>();
+    private final Map<String, Double> extraPinValues = new ConcurrentHashMap<>();
 
     @Override
     public long getRevision() {
@@ -54,7 +58,7 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
     public double readTag(ScadaProject project, String tagName) {
         if (project == null || tagName == null) return 0.0;
         ScadaTag tag = project.getTag(tagName);
-        if (tag == null) return 0.0;
+        if (tag == null) return extraPinValues.getOrDefault(tagName, 0.0);
         return tag.getRuntimeValue();
     }
 
@@ -89,6 +93,14 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
         for (ScadaTag tag : project.getTags().values()) {
             if (tag.getSourceType() != TagSourceType.INTERNAL) {
                 refs.add(resolveEndpointRef(tag));
+            }
+        }
+        for (ScadaScreen screen : project.getScreens()) {
+            for (ScadaGraphicElement ge : screen.getGraphics()) {
+                if (ge.isIndicatorEnabled() && !ge.getIndicatorPin().isBlank()
+                        && project.getTag(ge.getIndicatorPin()) == null) {
+                    refs.add(ge.getIndicatorPin());
+                }
             }
         }
         if (endpoint instanceof MaraflowSimClient simClient) {
@@ -147,6 +159,28 @@ public class MaraflowBridgeTagProvider implements RuntimeTagProvider {
             if (tagChanged) {
                 lastChangedTagNames.add(tag.getName());
                 changed = true;
+            }
+        }
+        for (ScadaScreen screen : project.getScreens()) {
+            for (ScadaGraphicElement ge : screen.getGraphics()) {
+                if (!ge.isIndicatorEnabled() || ge.getIndicatorPin().isBlank()) continue;
+                String pin = ge.getIndicatorPin();
+                if (project.getTag(pin) != null) continue;
+                if (!online) {
+                    if (extraPinValues.remove(pin) != null) {
+                        lastChangedTagNames.add(pin);
+                        changed = true;
+                    }
+                } else {
+                    Double val = values.get(pin);
+                    if (val != null) {
+                        Double prev = extraPinValues.put(pin, val);
+                        if (prev == null || Double.compare(prev, val) != 0) {
+                            lastChangedTagNames.add(pin);
+                            changed = true;
+                        }
+                    }
+                }
             }
         }
         if (changed) {

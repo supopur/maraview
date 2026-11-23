@@ -5,14 +5,17 @@ import cz.maramat.scada.model.FluidType;
 import cz.maramat.scada.model.PipeDiameter;
 import cz.maramat.scada.model.ScadaPipe;
 import cz.maramat.scada.model.ScadaProject;
+import cz.maramat.scada.model.ScadaScreen;
 import cz.maramat.scada.model.ScadaSymbolInstance;
 import cz.maramat.scada.model.SymbolCatalog;
+import cz.maramat.scada.render.ScadaPalette;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JColorChooser;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -22,6 +25,7 @@ import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -202,6 +206,26 @@ public class ScadaInspectorPanel extends JPanel {
                 canvas.refreshAfterExternalEdit();
             });
             addRow(form, gc, row++, "Level (%):", lvlSpin);
+        } else if (st.equals("PushButton") || st.equals("PilotLamp")) {
+            Color defaultCol = st.equals("PushButton")
+                    ? new Color(0x2E, 0xCC, 0x71)
+                    : ScadaPalette.STATE_RUNNING_LED;
+            Color currentCol = ScadaScreen.parseHexColor(sym.getProperties().get("Color"), defaultCol);
+            JButton colorBtn = new JButton("Choose Color...");
+            colorBtn.setBackground(currentCol);
+            colorBtn.addActionListener(e -> {
+                if (updating) return;
+                Color cur = ScadaScreen.parseHexColor(sym.getProperties().get("Color"), defaultCol);
+                Color picked = JColorChooser.showDialog(
+                        SwingUtilities.getWindowAncestor(this), st + " Color", cur);
+                if (picked != null) {
+                    canvas.recordUndoSnapshot("Change Color");
+                    sym.setProperty("Color", String.format("#%06X", picked.getRGB() & 0xFFFFFF));
+                    colorBtn.setBackground(picked);
+                    canvas.refreshAfterExternalEdit();
+                }
+            });
+            addRow(form, gc, row++, "Color:", colorBtn);
         }
 
         body.add(form);

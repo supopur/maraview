@@ -54,6 +54,10 @@ public class ScadaGraphicElement {
     private String imagePath = "";
     private boolean preserveAspectRatio = true;
     private double opacity = 1.0;
+    private boolean indicatorEnabled = false;
+    private String indicatorPin = "";
+    private Color indicatorActiveColor = new Color(0xE5, 0x39, 0x35);
+    private Color indicatorInactiveColor = new Color(0xF0, 0xF4, 0xF8);
 
     public ScadaGraphicElement() {
         this.id = UUID.randomUUID().toString();
@@ -86,6 +90,10 @@ public class ScadaGraphicElement {
         g.imagePath = this.imagePath;
         g.preserveAspectRatio = this.preserveAspectRatio;
         g.opacity = this.opacity;
+        g.indicatorEnabled = this.indicatorEnabled;
+        g.indicatorPin = this.indicatorPin;
+        g.indicatorActiveColor = this.indicatorActiveColor;
+        g.indicatorInactiveColor = this.indicatorInactiveColor;
         return g;
     }
 
@@ -255,5 +263,37 @@ public class ScadaGraphicElement {
 
     public void setOpacity(double opacity) {
         this.opacity = Math.max(0.05, Math.min(1.0, opacity));
+    }
+
+    public boolean isIndicatorEnabled() {
+        return indicatorEnabled;
+    }
+
+    public void setIndicatorEnabled(boolean indicatorEnabled) {
+        this.indicatorEnabled = indicatorEnabled;
+    }
+
+    public String getIndicatorPin() {
+        return indicatorPin;
+    }
+
+    public void setIndicatorPin(String indicatorPin) {
+        this.indicatorPin = (indicatorPin == null) ? "" : indicatorPin.trim();
+    }
+
+    public Color getIndicatorActiveColor() {
+        return indicatorActiveColor;
+    }
+
+    public void setIndicatorActiveColor(Color indicatorActiveColor) {
+        this.indicatorActiveColor = (indicatorActiveColor == null) ? new Color(0xE5, 0x39, 0x35) : indicatorActiveColor;
+    }
+
+    public Color getIndicatorInactiveColor() {
+        return indicatorInactiveColor;
+    }
+
+    public void setIndicatorInactiveColor(Color indicatorInactiveColor) {
+        this.indicatorInactiveColor = (indicatorInactiveColor == null) ? new Color(0xF0, 0xF4, 0xF8) : indicatorInactiveColor;
     }
 }

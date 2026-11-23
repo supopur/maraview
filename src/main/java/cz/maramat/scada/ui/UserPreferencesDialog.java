@@ -230,10 +230,8 @@ public final class UserPreferencesDialog {
         JComboBox<CommSettings.Mode> commModeCombo = new JComboBox<>(CommSettings.Mode.values());
         commModeCombo.setSelectedItem(defComm.getMode());
         JTextField hostField = new JTextField(defComm.getHost(), 16);
-        JSpinner tcpPortSpin = new JSpinner(new SpinnerNumberModel(defComm.getTcpPort(), 1, 65535, 1));
-        JTextField serialField = new JTextField(defComm.getSerialPort(), 16);
-        JSpinner baudSpin = new JSpinner(new SpinnerNumberModel(defComm.getBaudRate(), 1200, 921600, 9600));
-        JSpinner slaveIdSpin = new JSpinner(new SpinnerNumberModel(defComm.getSlaveId(), 0, 255, 1));
+        JTextField tcpPortField = ConnectServerDialog.createDigitsOnlyField(String.valueOf(defComm.getTcpPort()), 8);
+        JSpinner stationIdSpin = new JSpinner(new SpinnerNumberModel(defComm.getStationId(), 0, 254, 1));
         JSpinner pollSpin = new JSpinner(new SpinnerNumberModel(defComm.getPollIntervalMs(), 10, 10000, 10));
 
         JPanel commPanel = createFormPanel();
@@ -241,10 +239,8 @@ public final class UserPreferencesDialog {
         int r5 = 0;
         addRow(commPanel, g5, r5++, "Default Mode:", commModeCombo);
         addRow(commPanel, g5, r5++, "Default Host / IP:", hostField);
-        addRow(commPanel, g5, r5++, "Default TCP Port:", tcpPortSpin);
-        addRow(commPanel, g5, r5++, "Default Serial Port:", serialField);
-        addRow(commPanel, g5, r5++, "Default Baud Rate:", baudSpin);
-        addRow(commPanel, g5, r5++, "Default Slave ID:", slaveIdSpin);
+        addRow(commPanel, g5, r5++, "Default TCP Port:", tcpPortField);
+        addRow(commPanel, g5, r5++, "Default Station ID:", stationIdSpin);
         addRow(commPanel, g5, r5++, "Default Poll Interval (ms):", pollSpin);
         addFiller(commPanel, g5, r5);
 
@@ -294,10 +290,10 @@ public final class UserPreferencesDialog {
             CommSettings c = working.getDefaultCommSettings();
             c.setMode((CommSettings.Mode) commModeCombo.getSelectedItem());
             c.setHost(hostField.getText());
-            c.setTcpPort(((Number) tcpPortSpin.getValue()).intValue());
-            c.setSerialPort(serialField.getText());
-            c.setBaudRate(((Number) baudSpin.getValue()).intValue());
-            c.setSlaveId(((Number) slaveIdSpin.getValue()).intValue());
+            int parsedPort = CommSettings.DEFAULT_MARAPROT_TCP_PORT;
+            try { parsedPort = Integer.parseInt(tcpPortField.getText().trim()); } catch (NumberFormatException ignored) {}
+            c.setTcpPort(parsedPort);
+            c.setStationId(((Number) stationIdSpin.getValue()).intValue());
             c.setPollIntervalMs(((Number) pollSpin.getValue()).intValue());
         };
 
@@ -339,10 +335,8 @@ public final class UserPreferencesDialog {
             CommSettings dc = def.getDefaultCommSettings();
             commModeCombo.setSelectedItem(dc.getMode());
             hostField.setText(dc.getHost());
-            tcpPortSpin.setValue(dc.getTcpPort());
-            serialField.setText(dc.getSerialPort());
-            baudSpin.setValue(dc.getBaudRate());
-            slaveIdSpin.setValue(dc.getSlaveId());
+            tcpPortField.setText(String.valueOf(dc.getTcpPort()));
+            stationIdSpin.setValue(dc.getStationId());
             pollSpin.setValue(dc.getPollIntervalMs());
         });
 

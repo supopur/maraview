@@ -17,8 +17,7 @@ import java.util.Map;
  */
 public final class UserConfigStore {
 
-    private static final Path DEFAULT_PATH = Path.of(
-            System.getProperty("user.home"), ".maraview", "config.json");
+    private static final Path DEFAULT_PATH = OsPaths.getConfigDir("MaraView").resolve("config.json");
 
     private UserConfigStore() {
     }

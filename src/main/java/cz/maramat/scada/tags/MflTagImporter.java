@@ -178,6 +178,36 @@ public final class MflTagImporter {
                 tag.resetRuntimeToInitial();
                 out.putIfAbsent(tag.getName(), tag);
             }
+            return;
+        }
+
+        if (!blockName.isEmpty()) {
+            int outCount = parseIntSafe(props.getProperty(bp + "outCount"), 0);
+            for (int oi = 0; oi < outCount; oi++) {
+                String shortName = props.getProperty(bp + "out." + oi + ".short", "").trim();
+                if (shortName.isEmpty()) continue;
+                String pinRef = blockName + "." + shortName;
+                DataType dt = DataType.fromString(props.getProperty(bp + "out." + oi + ".type"), DataType.BOOL);
+                ScadaTag tag = new ScadaTag(pinRef, dt, TagSourceType.MFL_LINK);
+                tag.setMflOrigin(MflOrigin.BLOCK_PIN);
+                tag.setAddressOrRef(pinRef);
+                tag.setDescription(desc.isEmpty() ? defId + " output (" + pageName + ")" : desc);
+                tag.resetRuntimeToInitial();
+                out.putIfAbsent(tag.getName(), tag);
+            }
+            int inCount = parseIntSafe(props.getProperty(bp + "inCount"), 0);
+            for (int ii = 0; ii < inCount; ii++) {
+                String shortName = props.getProperty(bp + "in." + ii + ".short", "").trim();
+                if (shortName.isEmpty() || "En".equalsIgnoreCase(shortName)) continue;
+                String pinRef = blockName + "." + shortName;
+                DataType dt = DataType.fromString(props.getProperty(bp + "in." + ii + ".type"), DataType.BOOL);
+                ScadaTag tag = new ScadaTag(pinRef, dt, TagSourceType.MFL_LINK);
+                tag.setMflOrigin(MflOrigin.BLOCK_PIN);
+                tag.setAddressOrRef(pinRef);
+                tag.setDescription(desc.isEmpty() ? defId + " input (" + pageName + ")" : desc);
+                tag.resetRuntimeToInitial();
+                out.putIfAbsent(tag.getName(), tag);
+            }
         }
     }
 

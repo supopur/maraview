@@ -84,6 +84,26 @@ public final class MflTagImporter {
                 extractBlockTags(props, pfx + "block." + bi + ".", pageName, imported);
             }
 
+            // 2b-2. Visual Buttons (Way 1 + Way 2: SCADA can press Visual Buttons remotely)
+            int graphicCount = parseIntSafe(props.getProperty(pfx + "graphicCount"), 0);
+            for (int gi = 0; gi < graphicCount; gi++) {
+                String gp = pfx + "graphic." + gi + ".";
+                if ("VISUAL_BUTTON".equals(props.getProperty(gp + "kind", ""))) {
+                    String targetPin = props.getProperty(gp + "boundTargetPin", "").trim();
+                    if (targetPin.isEmpty()) continue;
+                    String label = props.getProperty(gp + "text", "BTN").trim();
+                    String baseName = label.isEmpty() ? "BTN" : label;
+                    String tagName = imported.containsKey(baseName) ? "BTN_" + baseName : baseName;
+                    if (imported.containsKey(tagName)) tagName = pageName + "." + tagName;
+                    ScadaTag tag = new ScadaTag(tagName, DataType.BOOL, TagSourceType.MFL_LINK);
+                    tag.setMflOrigin(MflOrigin.BLOCK_PIN);
+                    tag.setAddressOrRef(targetPin);
+                    tag.setDescription("Visual Button -> " + targetPin + " (" + pageName + ")");
+                    tag.resetRuntimeToInitial();
+                    imported.putIfAbsent(tag.getName(), tag);
+                }
+            }
+
             // 2c. Ladder Rungs (operands and embedded function blocks)
             int rungCount = parseIntSafe(props.getProperty(pfx + "rungCount"), 0);
             for (int ri = 0; ri < rungCount; ri++) {
@@ -95,6 +115,52 @@ public final class MflTagImporter {
                     String brp = rp + "branch." + bri + ".";
                     extractLadderList(props, brp + "el.", parseIntSafe(props.getProperty(brp + "elCount"), 0), pageName, imported);
                 }
+            }
+        }
+
+        // 3. Attach Modbus Slave Map (MCO/MDI/MHR/MIR) bindings from project.unit.modbusMap.*
+        int stationId = parseIntSafe(props.getProperty("project.unit.stationId"), 1);
+        int mbCount = parseIntSafe(props.getProperty("project.unit.modbusMap.count"), 0);
+        for (int mi = 0; mi < mbCount; mi++) {
+            String mp = "project.unit.modbusMap." + mi + ".";
+            String table = props.getProperty(mp + "table", "HOLDING_REGISTER");
+            int addr = parseIntSafe(props.getProperty(mp + "addr"), 0);
+            String target = props.getProperty(mp + "target", "").trim();
+            if (target.isEmpty()) continue;
+
+            int fc = switch (table) {
+                case "COIL" -> 1;
+                case "DISCRETE_INPUT" -> 2;
+                case "INPUT_REGISTER" -> 4;
+                default -> 3;
+            };
+            String prefix = switch (table) {
+                case "COIL" -> "MCO";
+                case "DISCRETE_INPUT" -> "MDI";
+                case "INPUT_REGISTER" -> "MIR";
+                default -> "MHR";
+            };
+            DataType mbDt = (fc == 1 || fc == 2) ? DataType.BOOL : DataType.INT;
+            ModbusBinding mb = new ModbusBinding(stationId, fc, addr, 1.0, 0.0);
+
+            ScadaTag matched = null;
+            for (ScadaTag t : imported.values()) {
+                if (t.getAddressOrRef().equalsIgnoreCase(target) || t.getName().equalsIgnoreCase(target)) {
+                    matched = t;
+                    break;
+                }
+            }
+            if (matched != null) {
+                matched.setModbusBinding(mb);
+                String d = matched.getDescription();
+                matched.setDescription((d.isEmpty() ? "" : d + " | ") + prefix + addr);
+            } else {
+                ScadaTag tag = new ScadaTag(prefix + addr, mbDt, TagSourceType.MODBUS);
+                tag.setAddressOrRef(target);
+                tag.setModbusBinding(mb);
+                tag.setDescription("Modbus " + prefix + addr + " -> " + target);
+                tag.resetRuntimeToInitial();
+                imported.putIfAbsent(tag.getName(), tag);
             }
         }
 
@@ -192,19 +258,6 @@ public final class MflTagImporter {
                 tag.setMflOrigin(MflOrigin.BLOCK_PIN);
                 tag.setAddressOrRef(pinRef);
                 tag.setDescription(desc.isEmpty() ? defId + " output (" + pageName + ")" : desc);
-                tag.resetRuntimeToInitial();
-                out.putIfAbsent(tag.getName(), tag);
-            }
-            int inCount = parseIntSafe(props.getProperty(bp + "inCount"), 0);
-            for (int ii = 0; ii < inCount; ii++) {
-                String shortName = props.getProperty(bp + "in." + ii + ".short", "").trim();
-                if (shortName.isEmpty() || "En".equalsIgnoreCase(shortName)) continue;
-                String pinRef = blockName + "." + shortName;
-                DataType dt = DataType.fromString(props.getProperty(bp + "in." + ii + ".type"), DataType.BOOL);
-                ScadaTag tag = new ScadaTag(pinRef, dt, TagSourceType.MFL_LINK);
-                tag.setMflOrigin(MflOrigin.BLOCK_PIN);
-                tag.setAddressOrRef(pinRef);
-                tag.setDescription(desc.isEmpty() ? defId + " input (" + pageName + ")" : desc);
                 tag.resetRuntimeToInitial();
                 out.putIfAbsent(tag.getName(), tag);
             }

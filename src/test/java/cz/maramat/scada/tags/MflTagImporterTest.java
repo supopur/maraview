@@ -132,9 +132,36 @@ class MflTagImporterTest {
         assertEquals(DataType.BOOL, pinTag.getDataType());
 
         ScadaTag inPinTag = imported.get("And1.A");
-        assertNotNull(inPinTag);
-        assertEquals(MflOrigin.BLOCK_PIN, inPinTag.getMflOrigin());
-        assertEquals("And1.A", inPinTag.getAddressOrRef());
+        assertNull(inPinTag);
         assertNull(imported.get("And1.En"));
+    }
+
+    @Test
+    void importsVisualButtonsAndModbusSlaveMap() {
+        Properties props = new Properties();
+        props.setProperty("project.pageCount", "1");
+        props.setProperty("page.0.name", "Main");
+        props.setProperty("page.0.graphicCount", "1");
+        props.setProperty("page.0.graphic.0.kind", "VISUAL_BUTTON");
+        props.setProperty("page.0.graphic.0.text", "StartBtn");
+        props.setProperty("page.0.graphic.0.boundTargetPin", "And1.A");
+        props.setProperty("project.unit.stationId", "3");
+        props.setProperty("project.unit.modbusMap.count", "1");
+        props.setProperty("project.unit.modbusMap.0.table", "HOLDING_REGISTER");
+        props.setProperty("project.unit.modbusMap.0.addr", "12");
+        props.setProperty("project.unit.modbusMap.0.target", "INT:0");
+
+        var imported = MflTagImporter.parseMflProperties(props);
+        ScadaTag btnTag = imported.get("StartBtn");
+        assertNotNull(btnTag);
+        assertEquals("And1.A", btnTag.getAddressOrRef());
+        assertEquals(DataType.BOOL, btnTag.getDataType());
+
+        ScadaTag mbTag = imported.get("MHR12");
+        assertNotNull(mbTag);
+        assertEquals(TagSourceType.MODBUS, mbTag.getSourceType());
+        assertNotNull(mbTag.getModbusBinding());
+        assertEquals(3, mbTag.getModbusBinding().getSlaveId());
+        assertEquals(12, mbTag.getModbusBinding().getAddress());
     }
 }

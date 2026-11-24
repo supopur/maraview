@@ -8,6 +8,7 @@ import cz.maramat.scada.config.UserConfig;
 import cz.maramat.scada.config.UserConfigStore;
 import cz.maramat.scada.io.MslProjectSerializer;
 import cz.maramat.scada.model.ScadaProject;
+import cz.maramat.scada.ui.DisplayWakeRepaintFix;
 import cz.maramat.scada.ui.MaraviewWindow;
 
 import javax.swing.SwingUtilities;
@@ -37,6 +38,7 @@ public class Main {
         final File fileFinal = projectFile;
 
         SwingUtilities.invokeLater(() -> {
+            DisplayWakeRepaintFix.install();
             UserConfig userConfig = UserConfigStore.load();
             applyLookAndFeel(userConfig);
 

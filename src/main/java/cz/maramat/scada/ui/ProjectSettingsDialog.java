@@ -111,7 +111,8 @@ public final class ProjectSettingsDialog {
             int station = parseIntOrDefault(stationField.getText(), 1);
             String pw = ConnectServerDialog.loadSavedPassword();
             testConnBtn.setEnabled(false);
-            testStatusLabel.setForeground(Color.DARK_GRAY);
+            testStatusLabel.setForeground(com.formdev.flatlaf.FlatLaf.isLafDark()
+                    ? new Color(0xF5, 0xF7, 0xFA) : Color.DARK_GRAY);
             testStatusLabel.setText("Connecting...");
             Thread.ofVirtual().start(() -> {
                 MaraflowSimClient.SimStatus st = MaraflowSimClient.testConnection(host, port, station, pw);

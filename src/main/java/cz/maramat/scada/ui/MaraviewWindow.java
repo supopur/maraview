@@ -637,7 +637,7 @@ public class MaraviewWindow extends JFrame {
             if (project != null) {
                 CommSettings comm = project.getCommSettings();
                 comm.setMode(CommSettings.Mode.MARAFLOW_SIM);
-                if (comm.getTcpPort() == 502) {
+                if (comm.getTcpPort() == 502 || comm.getTcpPort() == CommSettings.DEFAULT_MARAPROT_TCP_PORT) {
                     comm.setTcpPort(CommSettings.DEFAULT_MARAFLOW_SIM_PORT);
                 }
                 project.setDirty(true);

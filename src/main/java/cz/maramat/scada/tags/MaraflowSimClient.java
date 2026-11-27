@@ -39,8 +39,16 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
     public static final int OP_AUTH_VERIFY = 0x04;
     public static final int OP_VM_STATUS = 0x10;
     public static final int OP_VM_CONTROL = 0x11;
+    public static final int OP_SLOT_READ_BATCH = 0x32;
+    public static final int OP_SLOT_WRITE_BATCH = 0x33;
     public static final int OP_OPERAND_READ_BATCH = 0x60;
     public static final int OP_OPERAND_WRITE_BATCH = 0x61;
+
+    private static final int SLOT_TYPE_SHIFT = 14;
+    private static final int TYPE_BOOL = 0;
+    private static final int TYPE_INT = 1;
+    private static final int TYPE_LONG = 2;
+    private static final int TYPE_FLOAT = 3;
 
     public static final int CTRL_STOP = 0;
     public static final int CTRL_START = 1;
@@ -60,8 +68,8 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         }
     }
 
-    private static final int CONNECT_TIMEOUT_MS = 500;
-    private static final int SO_TIMEOUT_MS = 1000;
+    private static final int CONNECT_TIMEOUT_MS = 3000;
+    private static final int SO_TIMEOUT_MS = 2000;
     private static final long RECONNECT_COOLDOWN_MS = 1000L;
 
     private final Object ioLock = new Object();
@@ -81,6 +89,7 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
     private int nextSeqId = 1;
     private byte[] sessionKey;
     private boolean encryptEnabled = false;
+    private boolean supportsOperandBatch = true;
 
     public MaraflowSimClient() {
     }
@@ -149,9 +158,8 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         }
         lastConnectAttemptMs = now;
 
-        Socket s = new Socket();
+        Socket s = connectWithRetry();
         try {
-            s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
             s.setTcpNoDelay(true);
             s.setSoTimeout(SO_TIMEOUT_MS);
             this.socket = s;
@@ -159,6 +167,7 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
             this.out = s.getOutputStream();
             this.sessionKey = null;
             this.encryptEnabled = false;
+            this.supportsOperandBatch = true;
             this.connected = true;
             authenticateLocked();
         } catch (IOException ex) {
@@ -170,6 +179,26 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
             this.lastStatus = SimStatus.offline(ex.getMessage());
             throw ex;
         }
+    }
+
+    private Socket connectWithRetry() throws IOException {
+        IOException lastErr = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            Socket s = new Socket();
+            try {
+                s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+                return s;
+            } catch (java.net.SocketTimeoutException ex) {
+                lastErr = ex;
+                try { s.close(); } catch (IOException ignored) {}
+            } catch (IOException ex) {
+                try { s.close(); } catch (IOException ignored) {}
+                this.lastStatus = SimStatus.offline(ex.getMessage());
+                throw ex;
+            }
+        }
+        this.lastStatus = SimStatus.offline(lastErr != null ? lastErr.getMessage() : "Connect timeout");
+        throw lastErr;
     }
 
     private void authenticateLocked() throws IOException {
@@ -219,6 +248,9 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
                     int n = 0;
                     while (n < 24 && info[20 + n] != 0) n++;
                     modelName = new String(info, 20, n, StandardCharsets.US_ASCII);
+                    if (!modelName.isBlank() && !modelName.contains("Sim")) {
+                        this.supportsOperandBatch = false;
+                    }
                 }
                 byte[] st = transceiveLocked(OP_VM_STATUS, new byte[0], encryptEnabled);
                 String stateName = "STOPPED";
@@ -229,6 +261,7 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
                         case 2 -> "PAUSED";
                         case 3 -> "FAULT";
                         case 4 -> "ESTOP";
+                        case 5 -> "WATCH_MODE";
                         default -> "STOPPED";
                     };
                     estop = st[1] != 0;
@@ -297,37 +330,19 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
                 if (lastStatus == null || !lastStatus.online()) {
                     refreshStatus();
                 }
-                int idx = 0;
-                while (idx < keys.size()) {
-                    ByteArrayOutputStream req = new ByteArrayOutputStream();
-                    int batchStart = idx;
-                    int batchCount = 0;
-                    req.write(0);
-                    req.write(0);
-                    while (idx < keys.size()) {
-                        byte[] nameBytes = keys.get(idx).getBytes(StandardCharsets.UTF_8);
-                        if (req.size() + 2 + nameBytes.length > 480 && batchCount > 0) break;
-                        req.write(nameBytes.length & 0xFF);
-                        req.write((nameBytes.length >>> 8) & 0xFF);
-                        req.write(nameBytes, 0, nameBytes.length);
-                        batchCount++;
-                        idx++;
-                    }
-                    byte[] reqBytes = req.toByteArray();
-                    reqBytes[0] = (byte) (batchCount & 0xFF);
-                    reqBytes[1] = (byte) ((batchCount >>> 8) & 0xFF);
-                    byte[] resp = transceiveLocked(OP_OPERAND_READ_BATCH, reqBytes, encryptEnabled);
-                    if (resp.length >= 2) {
-                        ByteBuffer bb = ByteBuffer.wrap(resp).order(ByteOrder.LITTLE_ENDIAN);
-                        int respCount = bb.getShort() & 0xFFFF;
-                        for (int i = 0; i < respCount && bb.remaining() >= 8 && (batchStart + i) < keys.size(); i++) {
-                            double val = bb.getDouble();
-                            String key = keys.get(batchStart + i);
-                            result.put(key, val);
-                            cache.put(key, val);
+                if (supportsOperandBatch) {
+                    try {
+                        readOperandsBatchLocked(keys, result);
+                        return result;
+                    } catch (MaraProtErrorException ex) {
+                        if (ex.status == 2) {
+                            supportsOperandBatch = false;
+                        } else {
+                            throw ex;
                         }
                     }
                 }
+                readSlotsLocked(keys, result);
                 return result;
             } catch (IOException ex) {
                 closeSocketLocked(ex.getMessage());
@@ -340,6 +355,87 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         }
     }
 
+    private void readOperandsBatchLocked(List<String> keys, Map<String, Double> result) throws IOException {
+        int idx = 0;
+        while (idx < keys.size()) {
+            ByteArrayOutputStream req = new ByteArrayOutputStream();
+            int batchStart = idx;
+            int batchCount = 0;
+            req.write(0);
+            req.write(0);
+            while (idx < keys.size()) {
+                byte[] nameBytes = keys.get(idx).getBytes(StandardCharsets.UTF_8);
+                if (req.size() + 2 + nameBytes.length > 480 && batchCount > 0) break;
+                req.write(nameBytes.length & 0xFF);
+                req.write((nameBytes.length >>> 8) & 0xFF);
+                req.write(nameBytes, 0, nameBytes.length);
+                batchCount++;
+                idx++;
+            }
+            byte[] reqBytes = req.toByteArray();
+            reqBytes[0] = (byte) (batchCount & 0xFF);
+            reqBytes[1] = (byte) ((batchCount >>> 8) & 0xFF);
+            byte[] resp = transceiveLocked(OP_OPERAND_READ_BATCH, reqBytes, encryptEnabled);
+            if (resp.length >= 2) {
+                ByteBuffer bb = ByteBuffer.wrap(resp).order(ByteOrder.LITTLE_ENDIAN);
+                int respCount = bb.getShort() & 0xFFFF;
+                for (int i = 0; i < respCount && bb.remaining() >= 8 && (batchStart + i) < keys.size(); i++) {
+                    double val = bb.getDouble();
+                    String key = keys.get(batchStart + i);
+                    result.put(key, val);
+                    cache.put(key, val);
+                }
+            }
+        }
+    }
+
+    private void readSlotsLocked(List<String> keys, Map<String, Double> result) throws IOException {
+        List<String> slotKeys = new ArrayList<>();
+        List<Integer> slotIds = new ArrayList<>();
+        for (String k : keys) {
+            int sid = parseSlotId(k);
+            if (sid >= 0) {
+                slotKeys.add(k);
+                slotIds.add(sid);
+            }
+        }
+        int idx = 0;
+        while (idx < slotIds.size()) {
+            int batchCount = Math.min(64, slotIds.size() - idx);
+            ByteBuffer req = ByteBuffer.allocate(2 + batchCount * 2).order(ByteOrder.LITTLE_ENDIAN);
+            req.putShort((short) batchCount);
+            Map<Integer, String> batchMap = new LinkedHashMap<>();
+            for (int i = 0; i < batchCount; i++) {
+                int sid = slotIds.get(idx + i);
+                req.putShort((short) sid);
+                batchMap.put(sid, slotKeys.get(idx + i));
+            }
+            idx += batchCount;
+            byte[] resp = transceiveLocked(OP_SLOT_READ_BATCH, req.array(), encryptEnabled);
+            if (resp.length < 2) continue;
+            ByteBuffer bb = ByteBuffer.wrap(resp).order(ByteOrder.LITTLE_ENDIAN);
+            int emitted = bb.getShort() & 0xFFFF;
+            for (int i = 0; i < emitted && bb.remaining() >= 2; i++) {
+                int sid = bb.getShort() & 0xFFFF;
+                int type = (sid >>> SLOT_TYPE_SHIFT) & 0x3;
+                int sz = slotByteSize(type);
+                if (bb.remaining() < sz) break;
+                double val = switch (type) {
+                    case TYPE_BOOL -> (bb.get() != 0) ? 1.0 : 0.0;
+                    case TYPE_INT -> (double) bb.getInt();
+                    case TYPE_LONG -> (double) bb.getLong();
+                    case TYPE_FLOAT -> (double) bb.getFloat();
+                    default -> 0.0;
+                };
+                String k = batchMap.get(sid);
+                if (k != null) {
+                    result.put(k, val);
+                    cache.put(k, val);
+                }
+            }
+        }
+    }
+
     @Override
     public void writeOperand(String operandOrAddress, double value) {
         if (operandOrAddress == null || operandOrAddress.isBlank()) return;
@@ -348,16 +444,81 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         synchronized (ioLock) {
             try {
                 ensureConnectedLocked();
-                byte[] nameBytes = key.getBytes(StandardCharsets.UTF_8);
-                ByteBuffer bb = ByteBuffer.allocate(2 + 2 + nameBytes.length + 8).order(ByteOrder.LITTLE_ENDIAN);
-                bb.putShort((short) 1);
-                bb.putShort((short) nameBytes.length);
-                bb.put(nameBytes);
-                bb.putDouble(value);
-                transceiveLocked(OP_OPERAND_WRITE_BATCH, bb.array(), encryptEnabled);
+                if (supportsOperandBatch) {
+                    try {
+                        byte[] nameBytes = key.getBytes(StandardCharsets.UTF_8);
+                        ByteBuffer bb = ByteBuffer.allocate(2 + 2 + nameBytes.length + 8).order(ByteOrder.LITTLE_ENDIAN);
+                        bb.putShort((short) 1);
+                        bb.putShort((short) nameBytes.length);
+                        bb.put(nameBytes);
+                        bb.putDouble(value);
+                        transceiveLocked(OP_OPERAND_WRITE_BATCH, bb.array(), encryptEnabled);
+                        return;
+                    } catch (MaraProtErrorException ex) {
+                        if (ex.status == 2) {
+                            supportsOperandBatch = false;
+                        } else {
+                            throw ex;
+                        }
+                    }
+                }
+                int sid = parseSlotId(key);
+                if (sid >= 0) {
+                    int type = (sid >>> SLOT_TYPE_SHIFT) & 0x3;
+                    int sz = slotByteSize(type);
+                    ByteBuffer bb = ByteBuffer.allocate(4 + sz).order(ByteOrder.LITTLE_ENDIAN);
+                    bb.putShort((short) 1);
+                    bb.putShort((short) sid);
+                    switch (type) {
+                        case TYPE_BOOL -> bb.put((byte) (value != 0.0 ? 1 : 0));
+                        case TYPE_INT -> bb.putInt((int) Math.round(value));
+                        case TYPE_LONG -> bb.putLong(Math.round(value));
+                        case TYPE_FLOAT -> bb.putFloat((float) value);
+                    }
+                    transceiveLocked(OP_SLOT_WRITE_BATCH, bb.array(), encryptEnabled);
+                }
             } catch (IOException ex) {
                 closeSocketLocked(ex.getMessage());
             }
+        }
+    }
+
+    private static int parseSlotId(String key) {
+        if (key == null) return -1;
+        String u = key.trim().toUpperCase();
+        int colon = u.indexOf(':');
+        if (colon <= 0) return -1;
+        String prefix = u.substring(0, colon);
+        int type = switch (prefix) {
+            case "BOOL" -> TYPE_BOOL;
+            case "INT" -> TYPE_INT;
+            case "LONG" -> TYPE_LONG;
+            case "FLOAT" -> TYPE_FLOAT;
+            default -> -1;
+        };
+        if (type < 0) return -1;
+        try {
+            int idx = Integer.parseInt(u.substring(colon + 1).trim());
+            if (idx < 0 || idx > 0x3FFF) return -1;
+            return (type << SLOT_TYPE_SHIFT) | idx;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static int slotByteSize(int type) {
+        return switch (type) {
+            case TYPE_BOOL -> 1;
+            case TYPE_LONG -> 8;
+            default -> 4;
+        };
+    }
+
+    private static final class MaraProtErrorException extends IOException {
+        final int status;
+        MaraProtErrorException(int status, int opcode) {
+            super("MaraProt error status=" + status + " (op=0x" + Integer.toHexString(opcode) + ")");
+            this.status = status;
         }
     }
 
@@ -415,7 +576,7 @@ public class MaraflowSimClient implements PlcTagEndpoint, AutoCloseable {
         int crcRx = (fullFrame[HEADER_BYTES + rxLen] & 0xFF) | ((fullFrame[HEADER_BYTES + rxLen + 1] & 0xFF) << 8);
         if (crcCalc != crcRx) throw new IOException("CRC mismatch on MaraProt response");
         if (rxStatus != 0) {
-            throw new IOException("MaraProt error status=" + rxStatus + " (op=0x" + Integer.toHexString(opcode) + ")");
+            throw new MaraProtErrorException(rxStatus, opcode);
         }
 
         byte[] respPayload = new byte[rxLen];

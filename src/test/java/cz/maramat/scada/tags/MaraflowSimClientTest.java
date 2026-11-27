@@ -104,6 +104,102 @@ class MaraflowSimClientTest {
         assertFalse(offline.online());
     }
 
+    @Test
+    void fallsBackToSlotReadWriteOnPhysicalPlc() throws Exception {
+        Map<Integer, Integer> intSlots = new ConcurrentHashMap<>();
+        intSlots.put((1 << 14) | 3, 77);
+        AtomicBoolean running = new AtomicBoolean(true);
+
+        try (ServerSocket ss = new ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))) {
+            int port = ss.getLocalPort();
+            Thread serverThread = Thread.ofVirtual().start(() -> {
+                try (Socket s = ss.accept();
+                     InputStream in = s.getInputStream();
+                     OutputStream out = s.getOutputStream()) {
+                    while (running.get()) {
+                        byte[] hdr = in.readNBytes(10);
+                        if (hdr.length < 10) break;
+                        int seq = (hdr[4] & 0xFF) | ((hdr[5] & 0xFF) << 8);
+                        int op = hdr[6] & 0xFF;
+                        int len = (hdr[8] & 0xFF) | ((hdr[9] & 0xFF) << 8);
+                        byte[] payload = in.readNBytes(len);
+                        in.readNBytes(2);
+
+                        int status = 0;
+                        byte[] resp = switch (op) {
+                            case MaraflowSimClient.OP_AUTH_CHALLENGE -> new byte[17];
+                            case MaraflowSimClient.OP_GET_INFO -> {
+                                byte[] info = new byte[44];
+                                byte[] name = "F407PLC".getBytes(StandardCharsets.US_ASCII);
+                                System.arraycopy(name, 0, info, 20, name.length);
+                                yield info;
+                            }
+                            case MaraflowSimClient.OP_VM_STATUS -> new byte[32];
+                            case MaraflowSimClient.OP_SLOT_READ_BATCH -> {
+                                ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
+                                int count = bb.getShort() & 0xFFFF;
+                                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                                bos.write(count & 0xFF);
+                                bos.write((count >>> 8) & 0xFF);
+                                for (int i = 0; i < count; i++) {
+                                    int sid = bb.getShort() & 0xFFFF;
+                                    int val = intSlots.getOrDefault(sid, 0);
+                                    byte[] entry = ByteBuffer.allocate(6).order(ByteOrder.LITTLE_ENDIAN)
+                                            .putShort((short) sid).putInt(val).array();
+                                    bos.write(entry);
+                                }
+                                yield bos.toByteArray();
+                            }
+                            case MaraflowSimClient.OP_SLOT_WRITE_BATCH -> {
+                                ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
+                                bb.getShort();
+                                int sid = bb.getShort() & 0xFFFF;
+                                int val = bb.getInt();
+                                intSlots.put(sid, val);
+                                yield new byte[]{1, 0};
+                            }
+                            default -> {
+                                status = 2; // ERR_OPCODE
+                                yield new byte[0];
+                            }
+                        };
+                        byte[] frame = buildResp(seq, op, resp);
+                        frame[7] = (byte) status;
+                        int crc = 0xFFFF;
+                        for (int i = 0; i < 10 + resp.length; i++) {
+                            crc ^= (frame[i] & 0xFF) << 8;
+                            for (int b = 0; b < 8; b++) {
+                                crc = ((crc & 0x8000) != 0) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+                            }
+                        }
+                        frame[10 + resp.length] = (byte) (crc & 0xFF);
+                        frame[11 + resp.length] = (byte) ((crc >>> 8) & 0xFF);
+                        out.write(frame);
+                        out.flush();
+                    }
+                } catch (IOException ignored) {
+                }
+            });
+
+            try (MaraflowSimClient client = new MaraflowSimClient("127.0.0.1", port, 1, "admin")) {
+                MaraflowSimClient.SimStatus st = client.refreshStatus();
+                assertTrue(st.online());
+                assertEquals("F407PLC", st.projectName());
+
+                Map<String, Double> read = client.readOperands(List.of("INT:3", "SymbolicIgnored"));
+                assertEquals(77.0, read.get("INT:3"));
+                assertTrue(client.isOnline());
+
+                client.writeOperand("INT:3", 123.0);
+                assertEquals(123, intSlots.get((1 << 14) | 3));
+                assertTrue(client.isOnline());
+            } finally {
+                running.set(false);
+                serverThread.interrupt();
+            }
+        }
+    }
+
     private static byte[] buildResp(int seq, int op, byte[] payload) {
         byte[] f = new byte[12 + payload.length];
         f[0] = 0x4D;

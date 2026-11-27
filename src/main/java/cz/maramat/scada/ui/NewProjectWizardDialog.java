@@ -113,7 +113,8 @@ public class NewProjectWizardDialog extends JDialog {
 
         // Left Step Sidebar
         JPanel sidebar = new JPanel(new GridLayout(6, 1, 0, 4));
-        sidebar.setBackground(new Color(0xE6, 0xEC, 0xF2));
+        sidebar.setBackground(com.formdev.flatlaf.FlatLaf.isLafDark()
+                ? new Color(0x1E, 0x21, 0x26) : new Color(0xE6, 0xEC, 0xF2));
         sidebar.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 0, 1, new Color(0xB8, 0xB8, 0xB8)),
                 BorderFactory.createEmptyBorder(12, 10, 12, 10)
@@ -379,8 +380,9 @@ public class NewProjectWizardDialog extends JDialog {
                 stepLabels[i].setBackground(new Color(0x1F, 0x4E, 0x79));
                 stepLabels[i].setForeground(Color.WHITE);
             } else {
-                stepLabels[i].setBackground(new Color(0xE6, 0xEC, 0xF2));
-                stepLabels[i].setForeground(new Color(0x33, 0x33, 0x33));
+                boolean dark = com.formdev.flatlaf.FlatLaf.isLafDark();
+                stepLabels[i].setBackground(dark ? new Color(0x1E, 0x21, 0x26) : new Color(0xE6, 0xEC, 0xF2));
+                stepLabels[i].setForeground(dark ? new Color(0xF5, 0xF7, 0xFA) : new Color(0x33, 0x33, 0x33));
             }
         }
         backBtn.setEnabled(currentStep > 0);

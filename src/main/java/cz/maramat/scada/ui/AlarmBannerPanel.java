@@ -1,5 +1,7 @@
 package cz.maramat.scada.ui;
 
+import com.formdev.flatlaf.FlatLaf;
+
 import cz.maramat.scada.alarms.AlarmEngine;
 import cz.maramat.scada.alarms.AlarmEntry;
 import cz.maramat.scada.render.EquipmentState;
@@ -31,8 +33,6 @@ public class AlarmBannerPanel extends JPanel {
     public AlarmBannerPanel(AlarmEngine alarmEngine) {
         this.alarmEngine = alarmEngine;
         setLayout(new BorderLayout(6, 0));
-        setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(0x9A, 0xA0, 0xA6)));
-        setBackground(new Color(0xE8, 0xEC, 0xF0));
 
         stateBadge.setOpaque(true);
         stateBadge.setFont(new Font(Font.MONOSPACED, Font.BOLD, 11));
@@ -59,7 +59,24 @@ public class AlarmBannerPanel extends JPanel {
         add(stateBadge, BorderLayout.WEST);
         add(messageLabel, BorderLayout.CENTER);
         add(right, BorderLayout.EAST);
+        applyThemeColors();
         refresh(System.currentTimeMillis());
+    }
+
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        applyThemeColors();
+    }
+
+    private void applyThemeColors() {
+        boolean dark = FlatLaf.isLafDark();
+        setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0,
+                dark ? new Color(0x45, 0x4B, 0x54) : new Color(0x9A, 0xA0, 0xA6)));
+        setBackground(dark ? new Color(0x26, 0x29, 0x30) : new Color(0xE8, 0xEC, 0xF0));
+        if (messageLabel != null) {
+            messageLabel.setForeground(dark ? new Color(0xF5, 0xF7, 0xFA) : new Color(0x1F, 0x23, 0x28));
+        }
     }
 
     public void refresh(long nowMs) {
